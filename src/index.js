@@ -12,10 +12,10 @@ const DEFAULT_LLMS_EXCLUDE = [
   '/blog/authors/**',
 ];
 
-const DEFAULT_PROVIDER_ORDER = ['claude', 'chatgpt', 'perplexity', 'gemini'];
+const DEFAULT_PROVIDER_ORDER = ['claude', 'chatgpt', 'perplexity'];
 const VALID_PROVIDERS = new Set(DEFAULT_PROVIDER_ORDER);
 const DEFAULT_PROMPT_TEMPLATE =
-  'Read {pageUrl}.md and help me with the following question about it: ';
+  'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
 
 function normalizeOptions(raw) {
   const opts = raw || {};
@@ -41,13 +41,17 @@ function normalizeOptions(raw) {
         blog: llmsSections.blog || 'Blog',
         pages: llmsSections.pages || 'Pages',
       },
+      // Per-instance section map. Keys are "${pluginName}@${pluginId}".
+      // When set, supersedes `sections` and switches feature 2 from
+      // per-type grouping to per-instance grouping.
+      instanceSections: llmsTxt.instanceSections || null,
       fullTxt: llmsTxt.fullTxt !== false,
     },
     askAi: {
       enabled: askAi.enabled !== false,
       providerOrder: askAi.providerOrder || DEFAULT_PROVIDER_ORDER,
       promptTemplate: askAi.promptTemplate || DEFAULT_PROMPT_TEMPLATE,
-      placement: askAi.placement || 'doc-footer',
+      placement: askAi.placement || 'breadcrumb-row',
     },
     aiRoutes: {
       validate: aiRoutes.validate === true,
@@ -77,14 +81,48 @@ function validateOptions(opts) {
   if (opts.llmsTxt.header !== null && typeof opts.llmsTxt.header !== 'string') {
     errs.push('llmsTxt.header must be a string or null');
   }
+  if (opts.llmsTxt.instanceSections !== null) {
+    const is = opts.llmsTxt.instanceSections;
+    if (typeof is !== 'object' || Array.isArray(is)) {
+      errs.push(
+        'llmsTxt.instanceSections must be an object keyed by "${pluginName}@${pluginId}" or undefined',
+      );
+    } else {
+      for (const [key, value] of Object.entries(is)) {
+        if (!value || typeof value !== 'object' || Array.isArray(value)) {
+          errs.push(
+            `llmsTxt.instanceSections["${key}"] must be an object with { title, order? }`,
+          );
+          continue;
+        }
+        if (typeof value.title !== 'string' || value.title.length === 0) {
+          errs.push(
+            `llmsTxt.instanceSections["${key}"].title must be a non-empty string`,
+          );
+        }
+        if (
+          value.order !== undefined &&
+          (typeof value.order !== 'number' || !Number.isFinite(value.order))
+        ) {
+          errs.push(
+            `llmsTxt.instanceSections["${key}"].order must be a finite number when set`,
+          );
+        }
+      }
+    }
+  }
 
   if (!Array.isArray(opts.askAi.providerOrder)) {
     errs.push('askAi.providerOrder must be an array');
   } else {
     for (const p of opts.askAi.providerOrder) {
       if (!VALID_PROVIDERS.has(p)) {
+        const hint =
+          p === 'gemini'
+            ? '. Gemini was removed in 0.4.2 because gemini.google.com does not accept URL-encoded prompts'
+            : '';
         errs.push(
-          `askAi.providerOrder contains unknown provider "${p}". Valid: ${[...VALID_PROVIDERS].join(', ')}`,
+          `askAi.providerOrder contains unknown provider "${p}"${hint}. Valid providers: ${[...VALID_PROVIDERS].join(', ')}`,
         );
       }
     }
@@ -92,9 +130,12 @@ function validateOptions(opts) {
   if (typeof opts.askAi.promptTemplate !== 'string') {
     errs.push('askAi.promptTemplate must be a string');
   }
-  if (!['doc-footer', 'none'].includes(opts.askAi.placement)) {
+  if (!['breadcrumb-row', 'none'].includes(opts.askAi.placement)) {
+    // 'doc-footer' was the v0.1.x-v0.2.x default and is no longer
+    // accepted in v0.3.0. The wrappers that implemented it have been
+    // removed. See CHANGELOG for migration notes.
     errs.push(
-      `askAi.placement must be "doc-footer" or "none", got "${opts.askAi.placement}"`,
+      `askAi.placement must be "breadcrumb-row" or "none", got "${opts.askAi.placement}"`,
     );
   }
 
@@ -113,23 +154,33 @@ module.exports = function pluginAeo(context, rawOptions) {
   // Map<pluginName, { plugin: { name, id }, content: any }>
   const loadedContentByPlugin = new Map();
 
-  return {
+  const themeEnabled =
+    options.askAi.enabled && options.askAi.placement !== 'none';
+
+  const plugin = {
     name: '@stackql/docusaurus-plugin-aeo',
 
-    getThemePath() {
-      if (!options.askAi.enabled || options.askAi.placement === 'none') {
-        return undefined;
-      }
-      return path.resolve(__dirname, './theme');
+    // Surface the askAi config to theme components. setGlobalData MUST be
+    // called from contentLoaded - Docusaurus does not accept it from
+    // allContentLoaded, and theme components read it via
+    // usePluginData('@stackql/docusaurus-plugin-aeo') at render time.
+    async contentLoaded({ actions }) {
+      await actions.setGlobalData({
+        askAi: {
+          enabled: options.askAi.enabled,
+          providerOrder: options.askAi.providerOrder,
+          promptTemplate: options.askAi.promptTemplate,
+          placement: options.askAi.placement,
+          companionsEnabled: options.companions.enabled,
+        },
+      });
     },
 
-    getClientModules() {
-      return [];
-    },
-
-    // Surface the askAi config to theme components via a global data
-    // injection. Docusaurus client code can read this through useDocusaurusContext().
-    async contentLoaded({ actions, allContent }) {
+    // Cross-plugin loaded content (docs, blog, pages) is only delivered to
+    // allContentLoaded in Docusaurus 3.x. contentLoaded receives only the
+    // current plugin's own content, so feature 1 needs this hook to see
+    // the docs/blog source files it has to mirror.
+    async allContentLoaded({ allContent }) {
       if (allContent) {
         for (const [pluginName, byId] of Object.entries(allContent)) {
           if (!byId) continue;
@@ -142,16 +193,6 @@ module.exports = function pluginAeo(context, rawOptions) {
           }
         }
       }
-
-      await actions.setGlobalData({
-        askAi: {
-          enabled: options.askAi.enabled,
-          providerOrder: options.askAi.providerOrder,
-          promptTemplate: options.askAi.promptTemplate,
-          placement: options.askAi.placement,
-          companionsEnabled: options.companions.enabled,
-        },
-      });
 
       if (options.aiRoutes.validate) {
         validateAiRoutes({
@@ -188,13 +229,18 @@ module.exports = function pluginAeo(context, rawOptions) {
       }
     },
   };
+
+  // Only contribute a theme path when the Ask AI button is enabled.
+  // Returning undefined or an invalid value from getThemePath crashes
+  // @docusaurus/core in webpack/server.js; omitting the method entirely
+  // is the idiomatic signal that this plugin contributes no theme.
+  if (themeEnabled) {
+    plugin.getThemePath = () => path.resolve(__dirname, './theme');
+  }
+
+  return plugin;
 };
 
-module.exports.validateOptions = function validateDocusaurusOptions({
-  options,
-  validate: _validate,
-}) {
-  // Docusaurus passes a Joi validator we deliberately don't use - the plugin
-  // entry runs its own handwritten validator at construction time.
-  return options || {};
-};
+// Intentionally no validateOptions export: Docusaurus applies its own default
+// option normalization (including id: 'default') when this is absent.
+// The plugin's handwritten validator runs at construction time.

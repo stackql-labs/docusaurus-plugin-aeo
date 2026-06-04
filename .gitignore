@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.npm/
+.yarn/
+.pnp.*
+.npmrc.local
+*.tgz
+.env
+.env.local
+.env.*.local
+.DS_Store

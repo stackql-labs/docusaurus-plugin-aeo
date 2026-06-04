@@ -1,4 +1,10 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useState } from 'react';
+import Button from '@mui/material/Button';
+import Menu from '@mui/material/Menu';
+import MenuItem from '@mui/material/MenuItem';
+import ListItemIcon from '@mui/material/ListItemIcon';
+import ListItemText from '@mui/material/ListItemText';
+import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { useLocation } from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { usePluginData } from '@docusaurus/useGlobalData';
@@ -9,108 +15,109 @@ const PROVIDER_LABELS = {
   claude: 'Ask Claude',
   chatgpt: 'Ask ChatGPT',
   perplexity: 'Ask Perplexity',
-  gemini: 'Ask Gemini',
 };
 
 const PROVIDER_URLS = {
   claude: 'https://claude.ai/new?q=',
   chatgpt: 'https://chatgpt.com/?q=',
   perplexity: 'https://www.perplexity.ai/search?q=',
-  gemini: 'https://gemini.google.com/app?q=',
 };
 
-function buildPrompt(template, pageUrl) {
-  return template.replace('{pageUrl}', pageUrl);
-}
+const DEFAULT_PROMPT_TEMPLATE =
+  'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
 
-export default function AskAiButton(props) {
+export default function AskAiButton() {
   const { siteConfig } = useDocusaurusContext();
   const data = usePluginData('@stackql/docusaurus-plugin-aeo') || {};
   const cfg = data.askAi || {};
   const location = useLocation();
 
-  const [open, setOpen] = useState(false);
-  const wrapperRef = useRef(null);
-
-  useEffect(() => {
-    function onDocClick(e) {
-      if (wrapperRef.current && !wrapperRef.current.contains(e.target)) {
-        setOpen(false);
-      }
-    }
-    function onEsc(e) {
-      if (e.key === 'Escape') setOpen(false);
-    }
-    if (open) {
-      document.addEventListener('mousedown', onDocClick);
-      document.addEventListener('keydown', onEsc);
-    }
-    return () => {
-      document.removeEventListener('mousedown', onDocClick);
-      document.removeEventListener('keydown', onEsc);
-    };
-  }, [open]);
-
-  const toggle = useCallback(() => setOpen((v) => !v), []);
+  const [anchorEl, setAnchorEl] = useState(null);
+  const open = Boolean(anchorEl);
 
   if (cfg.enabled === false) return null;
 
   const baseUrl = (siteConfig.url || '').replace(/\/$/, '');
   const pageUrl = `${baseUrl}${location.pathname.replace(/\/$/, '') || ''}`;
-  const promptTemplate =
-    cfg.promptTemplate ||
-    'Read {pageUrl}.md and help me with the following question about it: ';
-  const targetUrl = cfg.companionsEnabled === false
-    ? pageUrl
-    : pageUrl; // template controls .md suffix; pageUrl is the HTML route
-  const prompt = buildPrompt(promptTemplate, targetUrl);
+  const promptTemplate = cfg.promptTemplate || DEFAULT_PROMPT_TEMPLATE;
+  const prompt = promptTemplate.replace('{pageUrl}', pageUrl);
   const encoded = encodeURIComponent(prompt);
 
   const order =
     Array.isArray(cfg.providerOrder) && cfg.providerOrder.length > 0
       ? cfg.providerOrder
-      : ['claude', 'chatgpt', 'perplexity', 'gemini'];
+      : ['claude', 'chatgpt', 'perplexity'];
+
+  const handleOpen = (e) => setAnchorEl(e.currentTarget);
+  const handleClose = () => setAnchorEl(null);
 
   return (
-    <div className={styles.wrapper} ref={wrapperRef}>
-      <button
-        type="button"
-        className={styles.trigger}
+    <div className={styles.dropdownWrapper}>
+      <Button
+        variant="outlined"
+        size="small"
+        endIcon={<KeyboardArrowDownIcon />}
+        onClick={handleOpen}
         aria-haspopup="menu"
         aria-expanded={open}
-        onClick={toggle}
+        sx={{
+          textTransform: 'none',
+          fontFamily: 'var(--ifm-font-family-base)',
+          fontWeight: 600,
+          fontSize: '0.75rem',
+          borderColor: 'var(--ifm-color-primary)',
+          color: 'var(--ifm-color-primary)',
+          '&:hover': {
+            borderColor: 'var(--ifm-color-primary)',
+            backgroundColor: 'rgba(0, 65, 101, 0.04)',
+          },
+        }}
       >
-        <span>Ask AI about this page</span>
-        <span className={styles.caret}>{open ? '▲' : '▼'}</span>
-      </button>
-      {open && (
-        <ul className={styles.menu} role="menu">
-          {order.map((key) => {
-            const Icon = icons[key];
-            const label = PROVIDER_LABELS[key] || key;
-            const base = PROVIDER_URLS[key];
-            if (!base || !Icon) return null;
-            const href = `${base}${encoded}`;
-            return (
-              <li key={key} className={styles.item} role="none">
-                <a
-                  role="menuitem"
-                  className={styles.itemLink}
-                  href={href}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  onClick={() => setOpen(false)}
-                >
-                  <span className={styles.icon}>
-                    <Icon />
-                  </span>
-                  <span>{label}</span>
-                </a>
-              </li>
-            );
-          })}
-        </ul>
-      )}
+        Ask AI about this page
+      </Button>
+      <Menu
+        anchorEl={anchorEl}
+        open={open}
+        onClose={handleClose}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        sx={{
+          '& .MuiPaper-root': {
+            fontFamily: 'var(--ifm-font-family-base)',
+            minWidth: 200,
+          },
+        }}
+      >
+        {order.map((key) => {
+          const Icon = icons[key];
+          const label = PROVIDER_LABELS[key];
+          const base = PROVIDER_URLS[key];
+          if (!base || !Icon) return null;
+          const href = `${base}${encoded}`;
+          return (
+            <MenuItem
+              key={key}
+              component="a"
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              onClick={handleClose}
+            >
+              <ListItemIcon sx={{ minWidth: 32, color: 'inherit' }}>
+                <Icon />
+              </ListItemIcon>
+              <ListItemText
+                primaryTypographyProps={{
+                  fontSize: '0.85rem',
+                  fontFamily: 'var(--ifm-font-family-base)',
+                }}
+              >
+                {label}
+              </ListItemText>
+            </MenuItem>
+          );
+        })}
+      </Menu>
     </div>
   );
 }

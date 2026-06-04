@@ -1,6 +1,6 @@
 {
   "name": "@stackql/docusaurus-plugin-aeo",
-  "version": "0.1.0",
+  "version": "0.4.2",
   "description": "AEO (Answer Engine Optimization) helpers for Docusaurus: .md companion files, llms.txt / llms-full.txt, an Ask AI dropdown, and /ai/* route conventions.",
   "main": "src/index.js",
   "exports": {
@@ -21,11 +21,33 @@
   },
   "peerDependencies": {
     "@docusaurus/core": "^3.0.0",
+    "@emotion/react": "^11.0.0",
+    "@emotion/styled": "^11.0.0",
+    "@mui/icons-material": "^5.0.0 || ^6.0.0 || ^7.0.0",
+    "@mui/material": "^5.0.0 || ^6.0.0 || ^7.0.0",
     "react": "^18.0.0 || ^19.0.0",
     "react-dom": "^18.0.0 || ^19.0.0"
   },
+  "peerDependenciesMeta": {
+    "@mui/material": {
+      "optional": false
+    },
+    "@mui/icons-material": {
+      "optional": false
+    },
+    "@emotion/react": {
+      "optional": false
+    },
+    "@emotion/styled": {
+      "optional": false
+    }
+  },
   "dependencies": {
     "gray-matter": "^4.0.3"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "uuid": "^11.1.1"
   },
   "repository": {
     "type": "git",
