@@ -29,7 +29,7 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/stackql/docusaurus-plugin-aeo"
+    "url": "git+https://github.com/stackql-labs/docusaurus-plugin-aeo"
   },
   "keywords": [
     "docusaurus",
@@ -43,7 +43,7 @@
   "author": "Jeffrey Aven @ StackQL Studios",
   "license": "MIT",
   "bugs": {
-    "url": "https://github.com/stackql/docusaurus-plugin-aeo/issues"
+    "url": "https://github.com/stackql-labs/docusaurus-plugin-aeo/issues"
   },
-  "homepage": "https://github.com/stackql/docusaurus-plugin-aeo#readme"
+  "homepage": "https://github.com/stackql-labs/docusaurus-plugin-aeo#readme"
 }
