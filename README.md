@@ -1,3 +1,5 @@
+[![NPM Version](https://img.shields.io/npm/v/%40stackql%2Fdocusaurus-plugin-aeo)](https://www.npmjs.com/package/@stackql/docusaurus-plugin-aeo)
+
 # @stackql/docusaurus-plugin-aeo
 
 AEO (Answer Engine Optimization) helpers for Docusaurus 3.x sites: emit plain-markdown `.md` companions for docs and blog posts, generate `llms.txt` and `llms-full.txt` at the build root, add an "Ask AI" dropdown above doc and blog content, and document a `/ai/*` routing convention for machine-readable companion content. This is a sibling to `@stackql/docusaurus-plugin-structured-data` (which emits JSON-LD); the two plugins compose without overlap.
