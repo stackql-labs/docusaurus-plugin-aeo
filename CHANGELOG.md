@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.0
+
+Plain-markdown companions, one rule for where a companion lives, and the companion advertised from its page. Raised against stackql.io, where the Ask AI prompt on the homepage read `https://stackql.io.md` and every `.md` URL returned raw MDX (imports, MUI components, tab definitions and inline SVG path data before the first sentence), and from an independent agent-readiness audit of the built site (alternate link, `llms-full.txt` reference and size, `Source:` URLs, the `how-tos` alias).
+
+### Changed (breaking)
+
+- **`companions.format` now defaults to `'plain'`.** The companion is plain markdown rendered from the MDX source rather than the source itself. The source is parsed with the remark toolchain Docusaurus compiles it with (`remark-mdx`, `remark-gfm`, `remark-directive`, `@slorber/remark-comment`) to locate every MDX construct, and the original text is edited by source position: imports, exports and `{expressions}` are removed; presentational elements (`svg`, `video`, `iframe`, icons) are dropped; `<Tabs>`/`<TabItem>` become a bold label per tab with the tab's content under it (the label is read from the `label` attribute or from the `<Tabs values={[...]}>` expression); `<a>`, `<img>`, `<b>`, `<i>`, `<code>`, `<h1>`-`<h6>`, `<br>`, `<details>`/`<summary>` become their markdown equivalent; a self-closing component that carries a link (`to`/`href` plus `text`/`label`/`title`) becomes a markdown link; every other element is unwrapped and the indentation its author added inside it is removed. HTML comments (including `<!-- truncate -->`) and `{#custom-id}` heading ids are removed; fenced code is never touched. Nothing outside MDX syntax is re-stringified, so `snake_case` stays unescaped and tables, admonitions and code fences are byte for byte the author's. A `# Title` / `> description` block from the page metadata is prepended (the title only when the body does not already open with an H1). A source that fails to parse falls back to the v0.4 regex stripper with a build warning. `format: md` files (front matter or `siteConfig.markdown.format`) are parsed as CommonMark and their raw HTML stripped. Set `companions: { format: 'raw' }` to keep emitting the source.
+- **Default `askAi.promptTemplate` is `'Read {companionUrl} and help me understand it. ...'`.** `{companionUrl}` is the page's `.md` file by the same rule feature 1 writes it. `{pageUrl}` is unchanged (the page, no trailing slash). A custom template still using the v0.4 idiom `{pageUrl}.md` keeps working: that sequence now resolves to `{companionUrl}` instead of being computed from the pathname, which produced `https://site.md` on the homepage and `/foo.md` on sites that build `/foo/index.html`.
+- **The Ask AI button is only rendered on pages that have a companion.** Generated category index pages, React pages and blog list pages have no source markdown and so no `.md` file; the button used to point readers at a 404 there. The route list is set as plugin global data from `allContentLoaded` (Docusaurus 3 merges it with the `contentLoaded` data); if it is absent the button shows everywhere as before. With `companions.enabled: false` the button shows everywhere and the prompt uses the page URL.
+- **`llms.txt` links are absolute** (`https://site/foo.md`), as the llms.txt spec's examples are. The file is read away from the site, where a relative link has no base.
+
+### Added
+
+- **`<link rel="alternate" type="text/markdown" href="...">` in every page that has a companion** (`companions.alternateLink`, default `true`), inserted into the built HTML in `postBuild`, with the absolute companion URL from the same rule the file is written by. `companions.linkHeader` (default `false`) also writes the relation as a `Link:` header per route in a Netlify-style `_headers` file, appended to one the site already ships.
+- **`## Optional` section in `llms.txt`** linking `llms-full.txt` (`llmsTxt.linkFullTxt`, default `true`), the llmstxt.org convention for secondary resources.
+- **`llmsTxt.fullTxt` object form** `{ include: ['<plugin>@<id>', ...], maxBytes }` to limit `llms-full.txt` to chosen content instances and/or a byte budget; the file stops before the page that would cross the cap. The boolean form is unchanged (`true` = everything).
+- Plain companions carry a `Source: <page URL>` line under the title and description, and `llms-full.txt` reuses it rather than adding a second one.
+- `companions.format: 'clean'` is accepted as a synonym for `'plain'`.
+- `src/features/aiRoutes.js`: `how-tos` and `how-to` directory names map to the `howTo` payload (only `howto` / `howtos` did; stackql.io uses `how-tos`).
+
+### Fixed
+
+- Feature 1, feature 2 and the Ask AI button each computed the companion location on their own; the button's version was wrong for the site root and for `trailingSlash: true`/undefined sites. All three now use `src/companionPath.js`.
+- `llms-full.txt` no longer doubles the page title (the plain companion already opens with it) and now puts a blank line after the `Source:` line, which used to run into the first paragraph.
+- Companions are written with LF line endings regardless of the source file's.
+
+### Added
+
+- `src/companionPath.js` (`companionPath`, `companionUrl`, `normalizeRoute`) and `src/askAiPrompt.js` (`fillPrompt`), plain CommonJS shared by the Node side and the theme component.
+- Runtime dependencies on `unified`, `remark-parse`, `remark-mdx`, `remark-gfm`, `remark-directive` and `@slorber/remark-comment` at the versions `@docusaurus/mdx-loader` 3.x already ships, so npm dedupes them.
+- A test suite (`npm test`, `node --test`): the companion path and HTML path rules, the prompt template, MDX fixtures for the converter (tabs, nested containers and dedent, link recovery, inline elements, details/summary, comments and heading ids, string-literal expressions, `md` format, the parse-failure fallback, CRLF sources), `llms.txt` rendering (sections, absolute links, the Optional block, the `fullTxt` forms), the alternate-link insertion (both `trailingSlash` layouts, idempotence, `_headers`), and the `/ai/*` directory classifier.
+
 ## 0.4.2
 
 ### Fixed

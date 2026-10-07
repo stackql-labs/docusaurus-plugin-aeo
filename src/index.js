@@ -1,6 +1,8 @@
 const path = require('path');
 const emitCompanions = require('./features/companions');
+const { collectCompanionItems } = require('./features/companions');
 const emitLlmsTxt = require('./features/llmsTxt');
+const injectAlternateLinks = require('./features/alternateLinks');
 const { validateAiRoutes } = require('./features/aiRoutes');
 
 const DEFAULT_LLMS_EXCLUDE = [
@@ -15,7 +17,7 @@ const DEFAULT_LLMS_EXCLUDE = [
 const DEFAULT_PROVIDER_ORDER = ['claude', 'chatgpt', 'perplexity'];
 const VALID_PROVIDERS = new Set(DEFAULT_PROVIDER_ORDER);
 const DEFAULT_PROMPT_TEMPLATE =
-  'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
+  'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
 
 function normalizeOptions(raw) {
   const opts = raw || {};
@@ -28,8 +30,13 @@ function normalizeOptions(raw) {
   return {
     companions: {
       enabled: companions.enabled !== false,
-      format: companions.format || 'raw',
+      format: companions.format || 'plain',
       exclude: companions.exclude || [],
+      // <link rel="alternate" type="text/markdown"> in every page that has
+      // a companion, and optionally the same as a Link header via a
+      // Netlify-style _headers file.
+      alternateLink: companions.alternateLink !== false,
+      linkHeader: companions.linkHeader === true,
     },
     llmsTxt: {
       enabled: llmsTxt.enabled !== false,
@@ -45,7 +52,10 @@ function normalizeOptions(raw) {
       // When set, supersedes `sections` and switches feature 2 from
       // per-type grouping to per-instance grouping.
       instanceSections: llmsTxt.instanceSections || null,
-      fullTxt: llmsTxt.fullTxt !== false,
+      // true (everything), false, or { include: ['<plugin>@<id>'], maxBytes }
+      fullTxt: llmsTxt.fullTxt === undefined ? true : llmsTxt.fullTxt,
+      // "## Optional" section in llms.txt pointing at llms-full.txt
+      linkFullTxt: llmsTxt.linkFullTxt !== false,
     },
     askAi: {
       enabled: askAi.enabled !== false,
@@ -63,10 +73,32 @@ function normalizeOptions(raw) {
 function validateOptions(opts) {
   const errs = [];
 
-  if (!['raw', 'plain'].includes(opts.companions.format)) {
+  if (!['raw', 'plain', 'clean'].includes(opts.companions.format)) {
     errs.push(
-      `companions.format must be "raw" or "plain", got "${opts.companions.format}"`,
+      `companions.format must be "plain" (or its synonym "clean") or "raw", got "${opts.companions.format}"`,
     );
+  }
+  if (typeof opts.companions.alternateLink !== 'boolean') {
+    errs.push('companions.alternateLink must be a boolean');
+  }
+  if (typeof opts.companions.linkHeader !== 'boolean') {
+    errs.push('companions.linkHeader must be a boolean');
+  }
+  const ft = opts.llmsTxt.fullTxt;
+  if (typeof ft !== 'boolean') {
+    if (!ft || typeof ft !== 'object' || Array.isArray(ft)) {
+      errs.push('llmsTxt.fullTxt must be a boolean or an object { include?: string[], maxBytes?: number }');
+    } else {
+      if (ft.include !== undefined && (!Array.isArray(ft.include) || ft.include.some((k) => typeof k !== 'string'))) {
+        errs.push('llmsTxt.fullTxt.include must be an array of "<plugin>@<id>" strings');
+      }
+      if (ft.maxBytes !== undefined && (!Number.isFinite(ft.maxBytes) || ft.maxBytes <= 0)) {
+        errs.push('llmsTxt.fullTxt.maxBytes must be a positive number');
+      }
+    }
+  }
+  if (typeof opts.llmsTxt.linkFullTxt !== 'boolean') {
+    errs.push('llmsTxt.linkFullTxt must be a boolean');
   }
   if (!Array.isArray(opts.companions.exclude)) {
     errs.push('companions.exclude must be an array of glob patterns');
@@ -160,10 +192,10 @@ module.exports = function pluginAeo(context, rawOptions) {
   const plugin = {
     name: '@stackql/docusaurus-plugin-aeo',
 
-    // Surface the askAi config to theme components. setGlobalData MUST be
-    // called from contentLoaded - Docusaurus does not accept it from
-    // allContentLoaded, and theme components read it via
-    // usePluginData('@stackql/docusaurus-plugin-aeo') at render time.
+    // Surface the askAi config to theme components, which read it via
+    // usePluginData('@stackql/docusaurus-plugin-aeo') at render time. The
+    // companion route list is added from allContentLoaded below; Docusaurus
+    // merges global data set from the two hooks (shallow, per plugin).
     async contentLoaded({ actions }) {
       await actions.setGlobalData({
         askAi: {
@@ -180,7 +212,7 @@ module.exports = function pluginAeo(context, rawOptions) {
     // allContentLoaded in Docusaurus 3.x. contentLoaded receives only the
     // current plugin's own content, so feature 1 needs this hook to see
     // the docs/blog source files it has to mirror.
-    async allContentLoaded({ allContent }) {
+    async allContentLoaded({ allContent, actions }) {
       if (allContent) {
         for (const [pluginName, byId] of Object.entries(allContent)) {
           if (!byId) continue;
@@ -200,6 +232,18 @@ module.exports = function pluginAeo(context, rawOptions) {
           verbose: options.verbose,
         });
       }
+
+      // Which routes will have a companion, so the Ask AI button can point
+      // at the file and stay hidden on pages without one (generated
+      // category indexes, React pages). Same list postBuild emits from.
+      if (actions && typeof actions.setGlobalData === 'function') {
+        const companionRoutes = options.companions.enabled
+          ? collectCompanionItems(loadedContentByPlugin, options.companions).map(
+              (item) => item.permalink,
+            )
+          : [];
+        await actions.setGlobalData({ companionRoutes });
+      }
     },
 
     async postBuild(props) {
@@ -214,6 +258,15 @@ module.exports = function pluginAeo(context, rawOptions) {
         });
       } else if (options.verbose) {
         console.log('[plugin-aeo] companions disabled, skipping feature 1');
+      }
+
+      if (options.companions.enabled && options.companions.alternateLink) {
+        await injectAlternateLinks({
+          props,
+          emittedCompanions,
+          linkHeader: options.companions.linkHeader,
+          verbose: options.verbose,
+        });
       }
 
       if (options.llmsTxt.enabled) {

@@ -1,6 +1,8 @@
 const path = require('path');
 const fs = require('fs').promises;
 const matter = require('gray-matter');
+const { companionPath, pageUrl } = require('../companionPath');
+const { toPlainMarkdown, resolveFormat } = require('./plainMarkdown');
 
 // Minimal glob matcher for route paths. Patterns like "/blog/tags/**",
 // "/search". Avoids pulling micromatch directly.
@@ -36,43 +38,6 @@ function toRegExp(glob) {
     }
   }
   return new RegExp('^' + re + '$');
-}
-
-function stripMdx(source) {
-  let out = source;
-  // Strip import / export lines (top-of-file MDX).
-  out = out.replace(/^\s*import\s+[^\n]+\n/gm, '');
-  out = out.replace(/^\s*export\s+[^\n]+\n/gm, '');
-  // Strip self-closing JSX tags like <Component prop="x" />.
-  out = out.replace(/<([A-Z][A-Za-z0-9]*)\b[^>]*\/>\s*/g, '');
-  // Strip paired JSX blocks like <Foo>...</Foo> (non-greedy, single component).
-  out = out.replace(
-    /<([A-Z][A-Za-z0-9]*)\b[^>]*>[\s\S]*?<\/\1>\s*/g,
-    '',
-  );
-  // Strip stray opening or closing component tags left behind.
-  out = out.replace(/<\/?[A-Z][A-Za-z0-9]*\b[^>]*>/g, '');
-  // Collapse 3+ blank lines.
-  out = out.replace(/\n{3,}/g, '\n\n');
-  return out;
-}
-
-function routeToCompanionPath(routePath, trailingSlash, outDir) {
-  // Docusaurus emits either /foo/index.html (trailingSlash: true / undefined)
-  // or /foo.html (trailingSlash: false). The companion mirrors the HTML.
-  let rel;
-  if (routePath === '/' || routePath === '') {
-    rel = 'index.md';
-  } else {
-    const cleaned = routePath.replace(/^\/+|\/+$/g, '');
-    if (trailingSlash === false) {
-      rel = `${cleaned}.md`;
-    } else {
-      // true or undefined (Docusaurus default behavior: index.html in folder)
-      rel = `${cleaned}/index.md`;
-    }
-  }
-  return path.join(outDir, rel);
 }
 
 function collectFromDocs(content, pluginName, pluginId) {
@@ -122,6 +87,26 @@ function collectFromBlog(content, pluginName, pluginId) {
   return results;
 }
 
+// Every page that gets a companion: docs and blog pages with a source file,
+// minus `companions.exclude`. Generated category indexes, React pages and
+// blog list/tag/author pages have no source and are not in this list. Used
+// by postBuild to emit the files and by allContentLoaded to tell the Ask AI
+// button which routes have one.
+function collectCompanionItems(loadedContentByPlugin, options) {
+  const items = [];
+  for (const [, entry] of loadedContentByPlugin) {
+    const { pluginName, pluginId, content } = entry;
+    if (pluginName === 'docusaurus-plugin-content-docs') {
+      items.push(...collectFromDocs(content, pluginName, pluginId));
+    } else if (pluginName === 'docusaurus-plugin-content-blog') {
+      items.push(...collectFromBlog(content, pluginName, pluginId));
+    }
+    // Custom pages plugin emits React components, not markdown. Skip silently.
+  }
+  const exclude = (options && options.exclude) || [];
+  return items.filter((item) => !matchAny(item.permalink, exclude));
+}
+
 function resolveSourcePath(sourceRef, siteDir) {
   if (!sourceRef) return null;
   // Docusaurus content references look like "@site/docs/intro.md".
@@ -136,6 +121,34 @@ async function ensureDir(p) {
   await fs.mkdir(path.dirname(p), { recursive: true });
 }
 
+// Put the page's title, description and canonical URL at the top of a
+// plain companion so an LLM sees them without parsing YAML, and can cite
+// the page:
+//
+//   # Title
+//
+//   > description
+//
+//   Source: https://site/route
+//
+// A body that already opens with an H1 keeps it; the rest goes under it.
+function withTitleBlock(markdown, title, description, sourceUrl) {
+  const lines = markdown.split('\n');
+  const first = lines.findIndex((l) => l.trim() !== '');
+  const hasH1 = first >= 0 && /^#\s+\S/.test(lines[first]);
+  const extras = [];
+  if (description) extras.push(`> ${String(description).replace(/\s+/g, ' ').trim()}`);
+  if (sourceUrl) extras.push(`Source: ${sourceUrl}`);
+  if (hasH1) {
+    if (extras.length === 0) return markdown;
+    return [...lines.slice(0, first + 1), '', extras.join('\n\n'), ...lines.slice(first + 1)].join('\n');
+  }
+  const head = [];
+  if (title) head.push(`# ${title}`);
+  head.push(...extras);
+  return head.length ? `${head.join('\n\n')}\n\n${markdown}` : markdown;
+}
+
 module.exports = async function emitCompanions({
   props,
   options,
@@ -144,30 +157,16 @@ module.exports = async function emitCompanions({
 }) {
   const { outDir, siteConfig, siteDir } = props;
   const trailingSlash = siteConfig.trailingSlash;
-  const excludePatterns = options.exclude || [];
-  const format = options.format;
+  // 'clean' is accepted as a synonym for 'plain' (the name the external
+  // audit of 0.4.2 used for this behaviour).
+  const format = options.format === 'clean' ? 'plain' : options.format;
+  const markdownConfigFormat = siteConfig.markdown && siteConfig.markdown.format;
 
-  // Build the work list from captured loadedContent.
-  const items = [];
-  for (const [, entry] of loadedContentByPlugin) {
-    const { pluginName, pluginId, content } = entry;
-    if (pluginName === 'docusaurus-plugin-content-docs') {
-      items.push(...collectFromDocs(content, pluginName, pluginId));
-    } else if (pluginName === 'docusaurus-plugin-content-blog') {
-      items.push(...collectFromBlog(content, pluginName, pluginId));
-    }
-    // Custom pages plugin emits React components, not markdown. Skip silently.
-  }
+  const items = collectCompanionItems(loadedContentByPlugin, options);
 
   const emitted = [];
+  let fallbacks = 0;
   for (const item of items) {
-    if (matchAny(item.permalink, excludePatterns)) {
-      if (verbose) {
-        console.log(`[plugin-aeo] companions: excluded ${item.permalink}`);
-      }
-      continue;
-    }
-
     const sourcePath = resolveSourcePath(item.sourceRef, siteDir);
     if (!sourcePath) {
       if (verbose) {
@@ -192,20 +191,31 @@ module.exports = async function emitCompanions({
 
     let body = raw;
     if (format === 'plain') {
-      // Strip frontmatter, then strip MDX-specific bits.
       const parsed = matter(raw);
-      body = stripMdx(parsed.content);
-      // Re-prepend a minimal "title + description" block so an LLM can see them
-      // without parsing YAML.
-      const prefixParts = [];
-      if (item.title) prefixParts.push(`# ${item.title}`);
-      if (item.description) prefixParts.push(`> ${item.description}`);
-      if (prefixParts.length > 0) {
-        body = `${prefixParts.join('\n\n')}\n\n${body.trim()}\n`;
+      const sourceFormat = resolveFormat({
+        filePath: sourcePath,
+        frontMatterFormat: parsed.data && parsed.data.format,
+        markdownConfigFormat,
+      });
+      const result = await toPlainMarkdown(parsed.content, {
+        format: sourceFormat,
+        filePath: sourcePath,
+      });
+      if (result.fallback) {
+        fallbacks++;
+        console.warn(
+          `[plugin-aeo] companions: ${path.relative(siteDir, sourcePath)} did not parse as ${sourceFormat} (${result.error && result.error.message}); used the regex stripper for its companion`,
+        );
       }
+      body = withTitleBlock(
+        result.markdown,
+        item.title,
+        item.description,
+        pageUrl(siteConfig.url, item.permalink),
+      );
     }
 
-    const target = routeToCompanionPath(item.permalink, trailingSlash, outDir);
+    const target = path.join(outDir, companionPath(item.permalink, trailingSlash));
     await ensureDir(target);
     await fs.writeFile(target, body, 'utf8');
 
@@ -228,7 +238,13 @@ module.exports = async function emitCompanions({
   }
 
   if (verbose) {
-    console.log(`[plugin-aeo] companions: emitted ${emitted.length} file(s)`);
+    console.log(
+      `[plugin-aeo] companions: emitted ${emitted.length} file(s)${fallbacks ? `, ${fallbacks} via the regex fallback` : ''}`,
+    );
   }
   return emitted;
 };
+
+module.exports.collectCompanionItems = collectCompanionItems;
+module.exports.withTitleBlock = withTitleBlock;
+module.exports.matchAny = matchAny;

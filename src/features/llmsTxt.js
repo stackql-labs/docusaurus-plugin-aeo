@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs').promises;
+const { companionUrl, pageUrl } = require('../companionPath');
 
 function matchAny(value, patterns) {
   if (!patterns || patterns.length === 0) return false;
@@ -30,17 +31,6 @@ function toRegExp(glob) {
     }
   }
   return new RegExp('^' + re + '$');
-}
-
-function companionUrl(permalink, trailingSlash) {
-  if (permalink === '/' || permalink === '') {
-    return '/index.md';
-  }
-  const cleaned = permalink.replace(/\/+$/, '');
-  if (trailingSlash === false) {
-    return `${cleaned}.md`;
-  }
-  return `${cleaned}/index.md`;
 }
 
 function groupKind(kind, pluginId) {
@@ -149,30 +139,20 @@ function buildSections(filtered, options, verbose) {
   return sections;
 }
 
-module.exports = async function emitLlmsTxt({
-  props,
-  options,
-  emittedCompanions,
-  companionsEnabled,
-  verbose,
-}) {
-  const { outDir, siteConfig } = props;
-  const trailingSlash = siteConfig.trailingSlash;
+// Normalised view of `llmsTxt.fullTxt`: the boolean form (`true` = every
+// section, no cap) or the object form `{ include, maxBytes }`.
+function fullTxtOptions(fullTxt) {
+  if (!fullTxt) return null;
+  if (fullTxt === true) return { include: null, maxBytes: null };
+  return {
+    include: Array.isArray(fullTxt.include) && fullTxt.include.length > 0 ? fullTxt.include : null,
+    maxBytes: Number.isFinite(fullTxt.maxBytes) && fullTxt.maxBytes > 0 ? fullTxt.maxBytes : null,
+  };
+}
 
-  // Filter the companions through include/exclude rules.
-  const filtered = emittedCompanions.filter((item) => {
-    if (options.include && !options.include.some((p) => toRegExp(p).test(item.permalink))) {
-      return false;
-    }
-    if (matchAny(item.permalink, options.exclude)) {
-      return false;
-    }
-    return true;
-  });
-
-  const sections = buildSections(filtered, options, verbose);
-
-  // Build llms.txt.
+// Render llms.txt from the sections. Pure, so it can be tested without a
+// build: returns the file text.
+function renderLlmsTxt({ siteConfig, siteUrl, trailingSlash, sections, options, companionsEnabled }) {
   const lines = [];
   lines.push(`# ${siteConfig.title}`);
   lines.push('');
@@ -189,9 +169,11 @@ module.exports = async function emitLlmsTxt({
     lines.push(`## ${section.title}`);
     lines.push('');
     for (const item of section.items) {
+      // Absolute, as the llms.txt spec's examples are: the file is read
+      // away from the site, where a relative link has no base.
       const url = companionsEnabled
-        ? companionUrl(item.permalink, trailingSlash)
-        : item.permalink;
+        ? companionUrl(siteUrl, item.permalink, trailingSlash)
+        : pageUrl(siteUrl, item.permalink);
       const desc = item.description || siteConfig.tagline || '';
       const titleText = item.title || item.permalink;
       if (desc) {
@@ -203,8 +185,68 @@ module.exports = async function emitLlmsTxt({
     lines.push('');
   }
 
+  // The llmstxt.org convention for secondary resources: an "Optional"
+  // section a reader can skip. llms-full.txt is the whole corpus in one
+  // file, so it belongs here rather than inline with the page list.
+  if (options.fullTxt && options.linkFullTxt !== false && companionsEnabled) {
+    lines.push('## Optional');
+    lines.push('');
+    lines.push(
+      `- [Full text of every page](${siteUrl}/llms-full.txt): one file with the content of every page listed above`,
+    );
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+// One block of llms-full.txt: the companion body with a `Source:` line (and
+// the title, when the body does not already open with it). A plain
+// companion already carries both, so the header is skipped and the body
+// is emitted as is.
+function fullTxtBlock({ body, item, siteUrl }) {
+  const url = pageUrl(siteUrl, item.permalink);
+  const head = body.trimStart().split('\n', 8);
+  const hasH1 = /^#\s+\S/.test(head[0] || '');
+  const hasSource = head.some((l) => /^Source: \S/.test(l));
+  const header = [
+    ...(hasH1 ? [] : [`# ${item.title || item.permalink}`, '']),
+    ...(hasSource ? [] : [`Source: ${url}`, '']),
+  ];
+  const prefix = header.length ? `${header.join('\n')}\n` : '';
+  return `${prefix}${body.trim()}\n`;
+}
+
+module.exports = async function emitLlmsTxt({
+  props,
+  options,
+  emittedCompanions,
+  companionsEnabled,
+  verbose,
+}) {
+  const { outDir, siteConfig } = props;
+  const trailingSlash = siteConfig.trailingSlash;
+  const siteUrl = (siteConfig.url || '').replace(/\/+$/, '');
+
+  // Filter the companions through include/exclude rules.
+  const filtered = emittedCompanions.filter((item) => {
+    if (options.include && !options.include.some((p) => toRegExp(p).test(item.permalink))) {
+      return false;
+    }
+    if (matchAny(item.permalink, options.exclude)) {
+      return false;
+    }
+    return true;
+  });
+
+  const sections = buildSections(filtered, options, verbose);
+
   const llmsTxtPath = path.join(outDir, 'llms.txt');
-  await fs.writeFile(llmsTxtPath, lines.join('\n'), 'utf8');
+  await fs.writeFile(
+    llmsTxtPath,
+    renderLlmsTxt({ siteConfig, siteUrl, trailingSlash, sections, options, companionsEnabled }),
+    'utf8',
+  );
   if (verbose) {
     console.log(`[plugin-aeo] llmsTxt: wrote ${llmsTxtPath}`);
   }
@@ -212,7 +254,8 @@ module.exports = async function emitLlmsTxt({
   // Build llms-full.txt by concatenating the companion files that we just
   // emitted in feature 1. Requires feature 1 to have been enabled. Section
   // headings mirror llms.txt so an LLM can navigate the corpus by H2.
-  if (options.fullTxt) {
+  const full = fullTxtOptions(options.fullTxt);
+  if (full) {
     if (!companionsEnabled) {
       if (verbose) {
         console.log(
@@ -222,9 +265,26 @@ module.exports = async function emitLlmsTxt({
       return;
     }
 
-    const sectionChunks = [];
-    for (const section of sections) {
-      const blocks = [];
+    // `include` names content instances ("<plugin>@<id>") or, with per-type
+    // grouping, the group keys (docs, blog, pages). Sections keep the order
+    // of llms.txt; `maxBytes` stops appending once the next block would
+    // cross the cap, so the file always ends on a whole page.
+    const wanted = full.include
+      ? sections.filter((s) => full.include.includes(s.key))
+      : sections;
+    if (full.include && wanted.length === 0 && verbose) {
+      console.log(
+        `[plugin-aeo] llmsTxt: fullTxt.include matched no section (have: ${sections.map((s) => s.key).join(', ')})`,
+      );
+    }
+
+    const SEP = '\n---\n\n';
+    let out = '';
+    let size = 0;
+    let truncated = false;
+    let pages = 0;
+    outer: for (const section of wanted) {
+      let sectionOpen = false;
       for (const item of section.items) {
         let body;
         try {
@@ -237,23 +297,31 @@ module.exports = async function emitLlmsTxt({
           }
           continue;
         }
-        const url = `${(siteConfig.url || '').replace(/\/$/, '')}${item.permalink}`;
-        const header = [
-          `# ${item.title || item.permalink}`,
-          '',
-          `Source: ${url}`,
-          '',
-        ].join('\n');
-        blocks.push(`${header}${body.trim()}\n`);
+        const block = fullTxtBlock({ body, item, siteUrl });
+        const chunk = `${sectionOpen ? SEP : `${out ? SEP : ''}## ${section.title}\n\n`}${block}`;
+        const bytes = Buffer.byteLength(chunk, 'utf8');
+        if (full.maxBytes && size + bytes > full.maxBytes) {
+          truncated = true;
+          break outer;
+        }
+        out += chunk;
+        size += bytes;
+        sectionOpen = true;
+        pages++;
       }
-      if (blocks.length === 0) continue;
-      sectionChunks.push(`## ${section.title}\n\n${blocks.join('\n---\n\n')}`);
     }
 
     const fullPath = path.join(outDir, 'llms-full.txt');
-    await fs.writeFile(fullPath, sectionChunks.join('\n---\n\n'), 'utf8');
+    await fs.writeFile(fullPath, out, 'utf8');
     if (verbose) {
-      console.log(`[plugin-aeo] llmsTxt: wrote ${fullPath}`);
+      console.log(
+        `[plugin-aeo] llmsTxt: wrote ${fullPath} (${pages} page(s), ${size} bytes${truncated ? `, stopped at the ${full.maxBytes}-byte cap` : ''})`,
+      );
     }
   }
 };
+
+module.exports.renderLlmsTxt = renderLlmsTxt;
+module.exports.fullTxtBlock = fullTxtBlock;
+module.exports.fullTxtOptions = fullTxtOptions;
+module.exports.buildSections = buildSections;
