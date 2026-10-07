@@ -1,5 +1,6 @@
 const path = require('path');
 const fs = require('fs').promises;
+const { companionUrl, normalizeRoute } = require('../companionPath');
 
 function matchAny(value, patterns) {
   if (!patterns || patterns.length === 0) return false;
@@ -30,17 +31,6 @@ function toRegExp(glob) {
     }
   }
   return new RegExp('^' + re + '$');
-}
-
-function companionUrl(permalink, trailingSlash) {
-  if (permalink === '/' || permalink === '') {
-    return '/index.md';
-  }
-  const cleaned = permalink.replace(/\/+$/, '');
-  if (trailingSlash === false) {
-    return `${cleaned}.md`;
-  }
-  return `${cleaned}/index.md`;
 }
 
 function groupKind(kind, pluginId) {
@@ -158,6 +148,7 @@ module.exports = async function emitLlmsTxt({
 }) {
   const { outDir, siteConfig } = props;
   const trailingSlash = siteConfig.trailingSlash;
+  const siteUrl = (siteConfig.url || '').replace(/\/+$/, '');
 
   // Filter the companions through include/exclude rules.
   const filtered = emittedCompanions.filter((item) => {
@@ -189,9 +180,11 @@ module.exports = async function emitLlmsTxt({
     lines.push(`## ${section.title}`);
     lines.push('');
     for (const item of section.items) {
+      // Absolute, as the llms.txt spec's examples are: the file is read
+      // away from the site, where a relative link has no base.
       const url = companionsEnabled
-        ? companionUrl(item.permalink, trailingSlash)
-        : item.permalink;
+        ? companionUrl(siteUrl, item.permalink, trailingSlash)
+        : `${siteUrl}${item.permalink}`;
       const desc = item.description || siteConfig.tagline || '';
       const titleText = item.title || item.permalink;
       if (desc) {
@@ -237,11 +230,16 @@ module.exports = async function emitLlmsTxt({
           }
           continue;
         }
-        const url = `${(siteConfig.url || '').replace(/\/$/, '')}${item.permalink}`;
+        const route = normalizeRoute(item.permalink);
+        const url = route === '/' ? `${siteUrl}/` : `${siteUrl}${route}`;
+        // Plain companions already open with the page's H1; only raw ones
+        // need the title added here. A blank line after `Source:` keeps it
+        // out of the first paragraph.
+        const hasH1 = /^#\s+\S/.test(body.trimStart());
         const header = [
-          `# ${item.title || item.permalink}`,
-          '',
+          ...(hasH1 ? [] : [`# ${item.title || item.permalink}`, '']),
           `Source: ${url}`,
+          '',
           '',
         ].join('\n');
         blocks.push(`${header}${body.trim()}\n`);

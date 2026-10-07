@@ -10,6 +10,13 @@ import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { usePluginData } from '@docusaurus/useGlobalData';
 import icons from './icons.js';
 import styles from './styles.module.css';
+// CommonJS, shared with the Node-side features so the button and the
+// emitted file can never disagree about where the companion lives.
+import companionPathModule from '../../companionPath.js';
+import askAiPromptModule from '../../askAiPrompt.js';
+
+const { companionUrl, normalizeRoute } = companionPathModule;
+const { fillPrompt } = askAiPromptModule;
 
 const PROVIDER_LABELS = {
   claude: 'Ask Claude',
@@ -24,7 +31,8 @@ const PROVIDER_URLS = {
 };
 
 const DEFAULT_PROMPT_TEMPLATE =
-  'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
+  'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.';
+
 
 export default function AskAiButton() {
   const { siteConfig } = useDocusaurusContext();
@@ -37,10 +45,28 @@ export default function AskAiButton() {
 
   if (cfg.enabled === false) return null;
 
-  const baseUrl = (siteConfig.url || '').replace(/\/$/, '');
-  const pageUrl = `${baseUrl}${location.pathname.replace(/\/$/, '') || ''}`;
+  const siteUrl = (siteConfig.url || '').replace(/\/+$/, '');
+  const route = normalizeRoute(location.pathname);
+  const pageUrl = route === '/' ? siteUrl : `${siteUrl}${route}`;
+
+  // Only pages with a companion get the button: a generated category index
+  // or a React page has no .md file, so a prompt pointing at one would
+  // send the reader to a 404. `companionRoutes` arrives from
+  // allContentLoaded; if an older core did not merge it, fall back to
+  // showing the button everywhere as before. With companions disabled the
+  // prompt uses the page itself.
+  const companionsEnabled = cfg.companionsEnabled !== false;
+  const routes = data.companionRoutes;
+  if (companionsEnabled && Array.isArray(routes)) {
+    const known = routes.some((r) => normalizeRoute(r) === route);
+    if (!known) return null;
+  }
+  const mdUrl = companionsEnabled
+    ? companionUrl(siteUrl, route, siteConfig.trailingSlash)
+    : pageUrl;
+
   const promptTemplate = cfg.promptTemplate || DEFAULT_PROMPT_TEMPLATE;
-  const prompt = promptTemplate.replace('{pageUrl}', pageUrl);
+  const prompt = fillPrompt(promptTemplate, { pageUrl, companionUrl: mdUrl });
   const encoded = encodeURIComponent(prompt);
 
   const order =

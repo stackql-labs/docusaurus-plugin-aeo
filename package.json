@@ -1,6 +1,6 @@
 {
   "name": "@stackql/docusaurus-plugin-aeo",
-  "version": "0.4.2",
+  "version": "0.5.0",
   "description": "AEO (Answer Engine Optimization) helpers for Docusaurus: .md companion files, llms.txt / llms-full.txt, an Ask AI dropdown, and /ai/* route conventions.",
   "main": "src/index.js",
   "exports": {
@@ -17,7 +17,7 @@
     "access": "public"
   },
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test test/*.test.js"
   },
   "peerDependencies": {
     "@docusaurus/core": "^3.0.0",
@@ -43,7 +43,13 @@
     }
   },
   "dependencies": {
-    "gray-matter": "^4.0.3"
+    "@slorber/remark-comment": "^1.0.0",
+    "gray-matter": "^4.0.3",
+    "remark-directive": "^3.0.0",
+    "remark-gfm": "^4.0.0",
+    "remark-mdx": "^3.0.0",
+    "remark-parse": "^11.0.0",
+    "unified": "^11.0.3"
   },
   "overrides": {
     "serialize-javascript": "^7.0.5",
@@ -67,5 +73,8 @@
   "bugs": {
     "url": "https://github.com/stackql-labs/docusaurus-plugin-aeo/issues"
   },
-  "homepage": "https://github.com/stackql-labs/docusaurus-plugin-aeo#readme"
+  "homepage": "https://github.com/stackql-labs/docusaurus-plugin-aeo#readme",
+  "engines": {
+    "node": ">=18.0"
+  }
 }

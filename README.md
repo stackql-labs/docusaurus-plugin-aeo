@@ -1,6 +1,6 @@
 # @stackql/docusaurus-plugin-aeo
 
-AEO (Answer Engine Optimization) helpers for Docusaurus 3.x sites: emit raw `.md` companion files for every page, generate `llms.txt` and `llms-full.txt` at the site root, drop an "Ask AI" dropdown into doc and blog footers, and document a `/ai/*` routing convention for machine-readable companion content. This is a sibling to `@stackql/docusaurus-plugin-structured-data` (which emits JSON-LD); the two plugins compose without overlap.
+AEO (Answer Engine Optimization) helpers for Docusaurus 3.x sites: emit a plain-markdown `.md` companion file for every page, generate `llms.txt` and `llms-full.txt` at the site root, drop an "Ask AI" dropdown into doc and blog footers, and document a `/ai/*` routing convention for machine-readable companion content. This is a sibling to `@stackql/docusaurus-plugin-structured-data` (which emits JSON-LD); the two plugins compose without overlap.
 
 ## Installation
 
@@ -45,12 +45,21 @@ module.exports = {
 
 ## Feature 1: `.md` companion files
 
-For every emitted HTML route from the docs and blog plugins, this plugin writes a sibling `.md` file. A page at `/docs/intro` gets a companion at `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`). The file contains the raw markdown source.
+For every emitted HTML route from the docs and blog plugins, this plugin writes a sibling `.md` file. The companion mirrors the HTML layout: a page at `/docs/intro` gets `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`), and the site root gets `/index.md`. The same rule (`src/companionPath.js`) is used by `llms.txt` and by the Ask AI button, so the three never disagree.
 
 Two modes:
 
-- `companions.format: 'raw'` (default): the MDX source is emitted as-is. MDX `<Component />` tags pass through. LLMs handle them fine, and the file is a faithful representation of the page.
-- `companions.format: 'plain'`: a best-effort regex pass strips `import` / `export` lines and JSX tags, then prepends a `# Title\n\n> description` block from the page frontmatter. Not a full remark pipeline - use `'raw'` unless an MDX-heavy page is causing concrete problems.
+- `companions.format: 'plain'` (default since 0.5.0): plain markdown rendered from the MDX source, with a `# Title` and `> description` block from the page metadata at the top. The source is parsed with the same remark toolchain Docusaurus compiles it with (remark-mdx, gfm, directives, comments) to locate every MDX construct, and the original text is then edited by source position:
+  - `import` / `export` statements and `{expressions}` are removed (a string literal expression keeps its value)
+  - presentational elements (`<svg>`, `<video>`, `<iframe>`, icons, ...) are dropped with their subtree
+  - `<Tabs>` / `<TabItem>` become a bold label per tab followed by the tab's content; the label comes from the `label` attribute or from the `<Tabs values={[...]}>` expression
+  - `<a>`, `<img>`, `<b>`, `<i>`, `<code>`, `<h2>`, `<br>`, `<details>` / `<summary>` become their markdown equivalent
+  - a self-closing component that plainly carries a link (`to` or `href` plus `text`, `label` or `title`) becomes a markdown link, so download buttons survive
+  - everything else (`<div>`, `<Box>`, `<span>`, your own layout components) is unwrapped: the tags go, the children stay, and indentation the author added inside the container is removed
+  - HTML comments (including `<!-- truncate -->`) and `{#custom-id}` heading ids are removed; fenced code is never touched
+
+  Nothing that is not MDX is re-stringified, so the author's markdown survives byte for byte: `snake_case` is not escaped, and tables, admonitions and code fences are exactly as written. A source that does not parse (it compiled for Docusaurus, so this should not happen) falls back to the v0.4 regex stripper with a warning rather than failing the build. Files declared `format: md` (front matter or `siteConfig.markdown.format`) are parsed as CommonMark and their raw HTML is stripped instead.
+- `companions.format: 'raw'`: the MDX source is emitted as-is, front matter included. MDX `<Component />` tags, imports and inline SVG data all pass through.
 
 Fetch example:
 
@@ -66,7 +75,7 @@ Non-content routes (custom React pages, redirects, the 404 page, search) are ski
 
 After feature 1 emits all companions, the plugin writes two files to the build root:
 
-- `llms.txt` - sectioned index of every doc/blog page, in the format described at <https://llmstxt.org>:
+- `llms.txt` - sectioned index of every doc/blog page, in the format described at <https://llmstxt.org>. Links are absolute (`https://site/foo.md`) since 0.5.0, as the spec's examples are; the file is read away from the site, where a relative link has no base:
 
   ```text
   # StackQL
@@ -75,15 +84,15 @@ After feature 1 emits all companions, the plugin writes two files to the build r
 
   ## Documentation
 
-  - [Getting started](/docs/intro/index.md): Install StackQL and run your first query.
-  - [Providers](/docs/providers/index.md): Catalog of supported cloud APIs.
+  - [Getting started](https://stackql.io/docs/intro/index.md): Install StackQL and run your first query.
+  - [Providers](https://stackql.io/docs/providers/index.md): Catalog of supported cloud APIs.
 
   ## Blog
 
-  - [Querying Snowflake with StackQL](/blog/snowflake/index.md): ...
+  - [Querying Snowflake with StackQL](https://stackql.io/blog/snowflake/index.md): ...
   ```
 
-- `llms-full.txt` - every companion concatenated with a `\n---\n\n` separator, each block prefixed with the page's title and URL so an LLM can cite individual sections.
+- `llms-full.txt` - every companion concatenated with a `\n---\n\n` separator, each block prefixed with a `Source: <page URL>` line (and the page's title, when the companion does not already open with it) so an LLM can cite individual sections.
 
 Options:
 
@@ -193,6 +202,16 @@ Read https://your-site.example/path/to/page.md and help me understand it. Summar
 
 The default is self-contained - submitting it as-is yields a useful summary plus a follow-up question. The prompt is prefilled in each provider's input box, so users can still edit or replace it before sending.
 
+Template placeholders:
+
+| Placeholder | Value |
+| --- | --- |
+| `{companionUrl}` | The page's `.md` companion, by the same rule feature 1 writes it: `https://site/index.md` for the homepage, `https://site/foo.md` or `https://site/foo/index.md` depending on `trailingSlash`. With feature 1 disabled, the page URL. |
+| `{pageUrl}` | The page itself: canonical URL, no trailing slash. |
+| `{pageUrl}.md` | Still honoured for templates written against v0.4, and resolves to `{companionUrl}`. (On its own it produced `https://site.md` for the homepage and the wrong path on sites that build `/foo/index.html`.) |
+
+The button only renders on pages that have a companion. Generated category index pages, React pages and blog list pages have no `.md` file, so on those the button is not shown rather than sending the reader to a 404. (The list of routes comes from `allContentLoaded`; with feature 1 disabled the button shows everywhere and the prompt uses the page URL.)
+
 Provider icons are hand-rolled inline SVGs in each provider's brand color (Claude `#D97757`, ChatGPT `#000000`, Perplexity `#21808D`). The Claude and Perplexity SVG paths come from [simple-icons](https://simpleicons.org) (CC0-1.0); the OpenAI mark is sourced from the @lobehub/icons project. Bundle cost is ~3KB across the three components combined.
 
 > **Gemini was previously supported but was removed in 0.4.2** because `gemini.google.com` silently ignores URL-encoded prompts, leaving users on an empty prompt box. There is no documented Gemini URL prefill API and Google has not indicated one is coming.
@@ -205,7 +224,7 @@ Options:
 | --- | --- | --- |
 | `askAi.enabled` | `true` | When `false`, the theme components are not registered. |
 | `askAi.providerOrder` | `['claude', 'chatgpt', 'perplexity']` | Order of items in the dropdown. Drop entries to hide them. Valid values: `'claude'`, `'chatgpt'`, `'perplexity'`. |
-| `askAi.promptTemplate` | `'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.'` | Prompt sent to each provider. `{pageUrl}` is the page's canonical URL (no trailing slash). If feature 1 is disabled, the consumer should remove the `.md` from the template. |
+| `askAi.promptTemplate` | `'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.'` | Prompt sent to each provider. `{companionUrl}` is the page's `.md` companion (the page URL when feature 1 is disabled); `{pageUrl}` is the page's canonical URL (no trailing slash). See the placeholder table above. |
 | `askAi.placement` | `'breadcrumb-row'` | `'breadcrumb-row'` puts the button at the top of every doc/blog page (docs breadcrumb row, or above the blog title). `'none'` does not register any theme components - swizzle the button into your preferred location manually. |
 
 The button is built from [MUI](https://mui.com) primitives - outlined `Button` with a `KeyboardArrowDownIcon` caret as the trigger, and a `Menu` of `MenuItem` rows for the providers. Theming reads `--ifm-color-primary` and `--ifm-font-family-base` via MUI's `sx` prop, so dark/light mode work automatically. The MUI `Menu` handles click-outside-to-close and Esc-to-close natively.
@@ -335,7 +354,7 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
   // Feature 1
   companions: {
     enabled: true,            // emit .md siblings
-    format: 'raw',            // 'raw' | 'plain'
+    format: 'plain',          // 'plain' | 'raw'
     exclude: [],              // route glob patterns to skip
   },
 
@@ -368,7 +387,7 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
   askAi: {
     enabled: true,
     providerOrder: ['claude', 'chatgpt', 'perplexity'],
-    promptTemplate: 'Read {pageUrl}.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.',
+    promptTemplate: 'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.',
     placement: 'breadcrumb-row',  // 'breadcrumb-row' | 'none'
   },
 
@@ -383,6 +402,15 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
 ```
 
 Options are validated by a small handwritten validator at plugin construction. Invalid options throw a clear error before the build starts.
+
+## Development
+
+```bash
+npm install
+npm test          # node --test: companion path rule, prompt template, MDX -> plain markdown
+```
+
+The plain-markdown converter lives in `src/features/plainMarkdown.js` and is exercised by `test/plainMarkdown.test.js` with small MDX fixtures; add a fixture there when a new construct needs handling.
 
 ## Composing with `@stackql/docusaurus-plugin-structured-data`
 
