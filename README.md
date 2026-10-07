@@ -1,6 +1,8 @@
+[![NPM Version](https://img.shields.io/npm/v/%40stackql%2Fdocusaurus-plugin-aeo)](https://www.npmjs.com/package/@stackql/docusaurus-plugin-aeo)
+
 # @stackql/docusaurus-plugin-aeo
 
-AEO (Answer Engine Optimization) helpers for Docusaurus 3.x sites: emit a plain-markdown `.md` companion file for every page, generate `llms.txt` and `llms-full.txt` at the site root, drop an "Ask AI" dropdown into doc and blog footers, and document a `/ai/*` routing convention for machine-readable companion content. This is a sibling to `@stackql/docusaurus-plugin-structured-data` (which emits JSON-LD); the two plugins compose without overlap.
+AEO (Answer Engine Optimization) helpers for Docusaurus 3.x sites: emit plain-markdown `.md` companions for docs and blog posts, generate `llms.txt` and `llms-full.txt` at the build root, add an "Ask AI" dropdown above doc and blog content, and document a `/ai/*` routing convention for machine-readable companion content. This is a sibling to `@stackql/docusaurus-plugin-structured-data` (which emits JSON-LD); the two plugins compose without overlap.
 
 ## Installation
 
@@ -25,7 +27,7 @@ module.exports = {
 };
 ```
 
-All four features are on by default. To configure, pass options:
+Companions, `llms.txt` / `llms-full.txt`, and the Ask AI button are enabled by default. The `/ai/*` docs instance requires site configuration, and its optional validator is off by default. To configure, pass options:
 
 ```js
 module.exports = {
@@ -45,20 +47,22 @@ module.exports = {
 
 ## Feature 1: `.md` companion files
 
-For every emitted HTML route from the docs and blog plugins, this plugin writes a sibling `.md` file. The companion mirrors the HTML layout: a page at `/docs/intro` gets `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`), and the site root gets `/index.md`. The same rule (`src/companionPath.js`) is used by `llms.txt` and by the Ask AI button, so the three never disagree.
+For each doc or blog post with a readable source file, this plugin writes a sibling `.md` file unless its permalink matches `companions.exclude`. The companion mirrors the HTML layout: a page at `/docs/intro` gets `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`). A doc or blog post at the site root gets `/index.md`. The same URL rule (`src/companionPath.js`) is used by `llms.txt` and the Ask AI button.
 
 Two modes:
 
-- `companions.format: 'plain'` (default since 0.5.0; `'clean'` is accepted as a synonym): plain markdown rendered from the MDX source, with a `# Title`, `> description` and `Source: <page URL>` block from the page metadata at the top, so an LLM can cite the page without parsing YAML. The source is parsed with the same remark toolchain Docusaurus compiles it with (remark-mdx, gfm, directives, comments) to locate every MDX construct, and the original text is then edited by source position:
+- `companions.format: 'plain'` (default since 0.5.0; `'clean'` is accepted as a synonym): plain markdown rendered from the MDX source, with a `# Title`, `> description` and `Source: <page URL>` block from the page metadata at the top, so an LLM can cite the page without parsing YAML. The converter uses remark-mdx, GFM, directives and comments to locate MDX constructs, then edits the original text by source position. It does not load the site's custom remark/rehype plugins:
   - `import` / `export` statements and `{expressions}` are removed (a string literal expression keeps its value)
   - presentational elements (`<svg>`, `<video>`, `<iframe>`, icons, ...) are dropped with their subtree
   - `<Tabs>` / `<TabItem>` become a bold label per tab followed by the tab's content; the label comes from the `label` attribute or from the `<Tabs values={[...]}>` expression
   - `<a>`, `<img>`, `<b>`, `<i>`, `<code>`, `<h2>`, `<br>`, `<details>` / `<summary>` become their markdown equivalent
   - a self-closing component that plainly carries a link (`to` or `href` plus `text`, `label` or `title`) becomes a markdown link, so download buttons survive
   - everything else (`<div>`, `<Box>`, `<span>`, your own layout components) is unwrapped: the tags go, the children stay, and indentation the author added inside the container is removed
-  - HTML comments (including `<!-- truncate -->`) and `{#custom-id}` heading ids are removed; fenced code is never touched
+  - HTML comments (including `<!-- truncate -->`) and `{#custom-id}` heading ids are removed outside ordinary code fences; `mdx-code-block` fences are unwrapped and their contents are processed as markup
 
-  Nothing that is not MDX is re-stringified, so the author's markdown survives byte for byte: `snake_case` is not escaped, and tables, admonitions and code fences are exactly as written. A source that does not parse (it compiled for Docusaurus, so this should not happen) falls back to the v0.4 regex stripper with a warning rather than failing the build. Files declared `format: md` (front matter or `siteConfig.markdown.format`) are parsed as CommonMark and their raw HTML is stripped instead.
+  Markdown is not re-stringified, so `snake_case` is not escaped and Markdown syntax is retained. Output is not byte-for-byte identical: line endings become LF, surplus blank lines and outer whitespace are trimmed, leading/trailing horizontal rules are removed, and content inside unwrapped containers is dedented. An existing opening H1 is retained instead of adding another title. A Markdown/MDX parse or conversion failure uses a regex fallback and logs a warning; front matter parsing errors are not covered by that fallback.
+
+  Source format follows front matter `format`, then `siteConfig.markdown.format`; `detect` selects by extension (`.md` as Markdown, `.mdx` as MDX). Files resolved as `md` use a CommonMark parser with GFM and directives, with HTML tags stripped or converted.
 - `companions.format: 'raw'`: the MDX source is emitted as-is, front matter included. MDX `<Component />` tags, imports and inline SVG data all pass through.
 
 Fetch example:
@@ -67,14 +71,14 @@ Fetch example:
 curl https://your-site.example/docs/intro/index.md
 ```
 
-**MIME type note.** Setting `Content-Type: text/markdown` from a static-site plugin is not possible. The file simply gets a `.md` extension and the host's MIME table handles it. Vercel, Netlify, Cloudflare Pages, GitHub Pages, and S3+CloudFront all serve `.md` as `text/markdown` or `text/plain` out of the box. If you serve from Nginx, ensure `text/markdown md;` is in your `mime.types`. What the plugin can do is tell the page's readers that the companion exists and what it is: see the alternate link below.
+**MIME type note.** The plugin writes `.md` files; the host determines their `Content-Type`. Check a deployed companion with `curl -I` and configure the host if needed. The alternate link below advertises the companion as `text/markdown` but does not set its HTTP response type.
 
 ### Advertising the companion from the page
 
 Every page that has a companion gets, in its `<head>`:
 
 ```html
-<link rel="alternate" type="text/markdown" href="https://your-site.example/docs/intro.md">
+<link rel="alternate" type="text/markdown" href="https://your-site.example/docs/intro/index.md">
 ```
 
 inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaurus-plugin-structured-data` uses). An agent that lands on the HTML can find the markdown without guessing the URL, and agent-readiness checkers score it. The href is absolute and follows the same rule as the file on disk. Options:
@@ -82,15 +86,15 @@ inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaur
 | Option | Default | Description |
 | --- | --- | --- |
 | `companions.alternateLink` | `true` | Insert the `<link rel="alternate" type="text/markdown">` tag into each page that has a companion. |
-| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships), for agents that read headers before bodies. |
+| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships). Requires `companions.alternateLink: true`. |
 
-Non-content routes (custom React pages, redirects, the 404 page, search) are skipped silently. Enable `verbose: true` to log skips.
+Generated category indexes, custom React pages and blog listing pages do not get companions. `verbose: true` logs unreadable source files and missing HTML during alternate-link insertion.
 
 ## Feature 2: `llms.txt` and `llms-full.txt`
 
-After feature 1 emits all companions, the plugin writes two files to the build root:
+With the defaults enabled, the plugin writes two files to the build root after emitting companions. Both use the emitted companion list, filtered by `llmsTxt.include` and `llmsTxt.exclude`. If companions are disabled, `llms.txt` contains only the site title, tagline and optional header; no page entries or `llms-full.txt` are emitted.
 
-- `llms.txt` - sectioned index of every doc/blog page, in the format described at <https://llmstxt.org>. Links are absolute (`https://site/foo.md`) since 0.5.0, as the spec's examples are; the file is read away from the site, where a relative link has no base:
+- `llms.txt` - sectioned index of included doc/blog companions, in the format described at <https://llmstxt.org>. Links are absolute (`https://site/foo.md`) since 0.5.0, as the spec's examples are; the file is read away from the site, where a relative link has no base:
 
   ```text
   # StackQL
@@ -113,7 +117,7 @@ After feature 1 emits all companions, the plugin writes two files to the build r
 
   The `## Optional` section is the llmstxt.org convention for secondary resources a reader can skip; it points at `llms-full.txt` whenever that file is emitted (`llmsTxt.linkFullTxt`, default `true`).
 
-- `llms-full.txt` - every companion concatenated with a `\n---\n\n` separator, each block carrying a `Source: <page URL>` line and the page's title (a plain companion already opens with both; a raw one has them added) so an LLM can cite individual sections. Limit it to chosen content instances or a byte budget with the object form of `llmsTxt.fullTxt` (below).
+- `llms-full.txt` - the included companions concatenated with a `\n---\n\n` separator, each block carrying a `Source: <page URL>` line and the page's title (a plain companion already opens with both; a raw one has them added) so an LLM can cite individual sections. Limit it to chosen content instances or a byte budget with the object form of `llmsTxt.fullTxt` (below).
 
 Options:
 
@@ -122,17 +126,17 @@ Options:
 | `llmsTxt.enabled` | `true` | Master switch. |
 | `llmsTxt.exclude` | `["/search", "/404", "/blog/tags/**", "/blog/page/**", "/blog/archive", "/blog/authors/**"]` | Route glob patterns to skip. |
 | `llmsTxt.include` | `null` | If set, only routes matching at least one pattern are included. Use for opt-in mode. |
-| `llmsTxt.header` | `null` | String prepended to `llms.txt` above the section list. Good for a project intro paragraph or links to key external resources. |
+| `llmsTxt.header` | `null` | String inserted after the site title/tagline and before the section list. Good for a project intro paragraph or links to key external resources. |
 | `llmsTxt.sections` | `{ docs: 'Documentation', blog: 'Blog', pages: 'Pages' }` | Section title overrides for the default per-type grouping. |
 | `llmsTxt.instanceSections` | `null` | Per-content-plugin-instance section map. When set, supersedes `sections` (see below). |
-| `llmsTxt.fullTxt` | `true` | Emit `llms-full.txt`. `true` is every section, uncapped. The object form `{ include?: string[], maxBytes?: number }` limits it: `include` names the content instances to concatenate (`'<pluginName>@<pluginId>'` keys, e.g. `'docusaurus-plugin-content-docs@ai'`; with per-type grouping the keys are `docs`, `blog`, `pages`), in `llms.txt` section order; `maxBytes` stops appending once the next page would cross the cap, so the file always ends on a whole page. Agents read a bounded prefix of the file (agentready reads the first 64 KiB), so a 1.4 MB corpus is mostly never seen; pick the sections that matter and cap it. |
+| `llmsTxt.fullTxt` | `true` | Emit `llms-full.txt`. `true` is every section, uncapped. The object form `{ include?: string[], maxBytes?: number }` limits it: `include` names the content instances to concatenate (`'<pluginName>@<pluginId>'` keys, e.g. `'docusaurus-plugin-content-docs@ai'`; with per-type grouping the keys are `docs`, `blog`, `pages`), in `llms.txt` section order; `maxBytes` stops appending once the next page would cross the cap, so the file always ends on a whole page. The budget includes section headings and separators. If the first page exceeds it, the file is empty. An omitted or empty `include` selects all sections. |
 | `llmsTxt.linkFullTxt` | `true` | Add the `## Optional` section to `llms.txt` with a link to `llms-full.txt`. |
 
 Glob patterns are matched against route permalinks. `**` matches across path segments; `*` matches within a single segment.
 
 ### Per-instance sectioning
 
-By default, `llms.txt` groups by content-plugin TYPE: every `@docusaurus/plugin-content-docs` instance lands under one `## Documentation` heading, every blog instance under `## Blog`, and so on. This is fine for sites with a single docs instance, but it breaks down for sites that run multiple docs instances with different audiences — for example, one for human-facing docs at `/docs/*` and one for AI-targeted reference content at `/ai/*`. In that case, `llms.txt` and `llms-full.txt` interleave both surfaces under one heading, hiding the corpus shape from the crawlers and agents the file exists to serve.
+By default, `llms.txt` groups by content-plugin TYPE: every `@docusaurus/plugin-content-docs` instance lands under one `## Documentation` heading, every blog instance under `## Blog`, and so on. This is fine for sites with a single docs instance, but it breaks down for sites that run multiple docs instances with different audiences - for example, one for human-facing docs at `/docs/*` and one for AI-targeted reference content at `/ai/*`. In that case, `llms.txt` and `llms-full.txt` interleave both surfaces under one heading, hiding the corpus shape from the crawlers and agents the file exists to serve.
 
 Set `llmsTxt.instanceSections` to switch to per-instance grouping. Keys are `"${pluginName}@${pluginId}"`; each value is `{ title, order? }`.
 
@@ -177,31 +181,35 @@ Resulting `llms.txt`:
 
 ## Documentation
 
-- [Getting started](/docs/intro/index.md): Install and run your first query.
-- [Providers](/docs/providers/index.md): Catalog of supported cloud APIs.
+- [Getting started](https://your-site.example/docs/intro/index.md): Install and run your first query.
+- [Providers](https://your-site.example/docs/providers/index.md): Catalog of supported cloud APIs.
 
 ## AI Reference
 
-- [What is StackQL](/ai/faqs/what-is-stackql/index.md): Canonical one-paragraph definition.
-- [Connecting to AWS](/ai/howto/connect-to-aws/index.md): Step-by-step authentication.
+- [What is StackQL](https://your-site.example/ai/faqs/what-is-stackql/index.md): Canonical one-paragraph definition.
+- [Connecting to AWS](https://your-site.example/ai/howto/connect-to-aws/index.md): Step-by-step authentication.
 
 ## Blog
 
-- [Querying Snowflake](/blog/snowflake/index.md): ...
+- [Querying Snowflake](https://your-site.example/blog/snowflake/index.md): ...
+
+## Optional
+
+- [Full text of every page](https://your-site.example/llms-full.txt): one file with the content of every page listed above
 ```
 
 `llms-full.txt` mirrors the same section structure: each section's title is emitted as an `## H2` heading above its concatenated companion blocks, in the same order.
 
 Behavior:
 
-- Sections appear in ascending `order`. Ties break alphabetically by title. Entries with no `order` go last.
+- Non-empty sections appear in ascending `order`. Ties break alphabetically by title. Sections with no `order` go last. Pages within each mapped section are sorted by permalink.
 - Instances not present in `instanceSections` are collected into a single appended `## Other` section, sorted alphabetically by page title. When `verbose: true`, each unmapped instance name is logged once so you notice and can map it.
 - `llmsTxt.sections` (the per-type titles) is ignored when `instanceSections` is set. When `verbose: true`, the plugin logs a one-line notice if both are configured.
-- When `instanceSections` is `null` (default), behavior is identical to v0.1.x: per-type grouping using `llmsTxt.sections` titles.
+- When `instanceSections` is `null` (default), grouping is by content type using `llmsTxt.sections` titles.
 
 ## Feature 3: "Ask AI" button
 
-An outlined pill button with a caret reading "Ask AI about this page" is injected at the top of every doc and blog-post content area, right-aligned in the breadcrumb row. Each item in the dropdown opens the corresponding AI surface in a new tab with a prefilled prompt that references the current page's `.md` companion. The button is hidden on viewports under 997px to keep the breadcrumb row uncluttered on mobile.
+An outlined pill button with a caret reading "Ask AI about this page" appears above eligible doc and blog-post content. Each item in the dropdown opens the corresponding AI surface in a new tab with a prefilled prompt that references the current page's `.md` companion. The button is hidden on viewports under 997px to keep the breadcrumb row uncluttered on mobile.
 
 Placement specifics:
 
@@ -219,7 +227,7 @@ Providers and URL patterns:
 Default prompt:
 
 ```text
-Read https://your-site.example/path/to/page.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.
+Read https://your-site.example/path/to/page/index.md and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.
 ```
 
 The default is self-contained - submitting it as-is yields a useful summary plus a follow-up question. The prompt is prefilled in each provider's input box, so users can still edit or replace it before sending.
@@ -232,7 +240,7 @@ Template placeholders:
 | `{pageUrl}` | The page itself: canonical URL, no trailing slash. |
 | `{pageUrl}.md` | Still honoured for templates written against v0.4, and resolves to `{companionUrl}`. (On its own it produced `https://site.md` for the homepage and the wrong path on sites that build `/foo/index.html`.) |
 
-The button only renders on pages that have a companion. Generated category index pages, React pages and blog list pages have no `.md` file, so on those the button is not shown rather than sending the reader to a 404. (The list of routes comes from `allContentLoaded`; with feature 1 disabled the button shows everywhere and the prompt uses the page URL.)
+The button only renders on pages that have a companion. Generated category index pages, React pages and blog list pages have no `.md` file, so on those the button is not shown rather than sending the reader to a 404. (The list of routes comes from `allContentLoaded`; with feature 1 disabled, the companion-route filter is disabled and the prompt uses the page URL wherever the button is rendered.)
 
 Provider icons are hand-rolled inline SVGs in each provider's brand color (Claude `#D97757`, ChatGPT `#000000`, Perplexity `#21808D`). The Claude and Perplexity SVG paths come from [simple-icons](https://simpleicons.org) (CC0-1.0); the OpenAI mark is sourced from the @lobehub/icons project. Bundle cost is ~3KB across the three components combined.
 
@@ -245,15 +253,15 @@ Options:
 | Option | Default | Description |
 | --- | --- | --- |
 | `askAi.enabled` | `true` | When `false`, the theme components are not registered. |
-| `askAi.providerOrder` | `['claude', 'chatgpt', 'perplexity']` | Order of items in the dropdown. Drop entries to hide them. Valid values: `'claude'`, `'chatgpt'`, `'perplexity'`. |
+| `askAi.providerOrder` | `['claude', 'chatgpt', 'perplexity']` | Order of items in the dropdown. Omit providers to hide them; an empty array falls back to the default order. Valid values: `'claude'`, `'chatgpt'`, `'perplexity'`. |
 | `askAi.promptTemplate` | `'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.'` | Prompt sent to each provider. `{companionUrl}` is the page's `.md` companion (the page URL when feature 1 is disabled); `{pageUrl}` is the page's canonical URL (no trailing slash). See the placeholder table above. |
-| `askAi.placement` | `'breadcrumb-row'` | `'breadcrumb-row'` puts the button at the top of every doc/blog page (docs breadcrumb row, or above the blog title). `'none'` does not register any theme components - swizzle the button into your preferred location manually. |
+| `askAi.placement` | `'breadcrumb-row'` | `'breadcrumb-row'` puts the button at the top of every doc/blog page (docs breadcrumb row, or above the blog title). `'none'` disables all bundled theme components, including the `@theme/AskAiButton` alias. See custom placement below. |
 
 The button is built from [MUI](https://mui.com) primitives - outlined `Button` with a `KeyboardArrowDownIcon` caret as the trigger, and a `Menu` of `MenuItem` rows for the providers. Theming reads `--ifm-color-primary` and `--ifm-font-family-base` via MUI's `sx` prop, so dark/light mode work automatically. The MUI `Menu` handles click-outside-to-close and Esc-to-close natively.
 
 ### Peer dependencies
 
-When `askAi.enabled` is `true` (the default), the following peer dependencies must be installed by the consumer site:
+The package declares these MUI/Emotion peers as required, in addition to Docusaurus `^3.0.0` and React/React DOM `^18.0.0 || ^19.0.0`:
 
 | Package | Range |
 | --- | --- |
@@ -262,19 +270,21 @@ When `askAi.enabled` is `true` (the default), the following peer dependencies mu
 | `@emotion/react` | `^11.0.0` |
 | `@emotion/styled` | `^11.0.0` |
 
-These are declared as peer dependencies (not direct dependencies) so consumers that already use MUI - common in Docusaurus sites - get a single deduped copy at install time. Consumers without MUI will get a clean npm peer-dependency error pointing at exactly what to install.
+These are peer dependencies so the plugin can share the site's MUI installation. npm can install missing peers automatically; other package managers may require you to add them explicitly.
 
-Consumers who disable the Ask AI button (`askAi.enabled: false`) can ignore these peers; the theme components are not registered in that case and MUI is never imported.
+Disabling Ask AI (`askAi.enabled: false`) prevents the plugin from registering its theme components, so they do not import MUI at runtime. It does not change the package's required peer declarations or the package manager's installation requirements.
 
 ### Customizing placement
 
-To put the button somewhere other than the breadcrumb row - sidebar, header, a specific page region - set `askAi.placement: 'none'` to disable the bundled swizzles, then import and place the component manually wherever you want:
+`askAi.placement: 'none'` disables the entire theme path, so `@theme/AskAiButton` is unavailable with that setting.
+
+To reuse the bundled button in a custom location, keep Ask AI enabled with `placement: 'breadcrumb-row'`. Add site-level theme overrides for `DocBreadcrumbs` and `BlogPostItem/Header/Title` that omit the default button, then import it in your chosen site component:
 
 ```jsx
 import AskAiButton from '@theme/AskAiButton';
 ```
 
-Wrap an existing theme component (e.g. `@theme/Layout`) the same way Docusaurus documents for any swizzle.
+The button retains its companion-route filter and desktop-only styling in a custom location.
 
 ## Feature 4: `/ai/*` routing convention
 
@@ -282,7 +292,7 @@ This plugin documents but does not auto-configure a second docs instance for mac
 
 ```js
 // docusaurus.config.js
-const { sitemapExclude, AI_ROUTE_PATTERNS } = require('@stackql/docusaurus-plugin-aeo/helpers');
+const { sitemapExclude } = require('@stackql/docusaurus-plugin-aeo/helpers');
 
 module.exports = {
   plugins: [
@@ -333,11 +343,11 @@ ai-content/
     └── stackql-cli.md         # frontmatter: softwareApplication: { ... }
 ```
 
-The companion files emitted by feature 1 will live at `/ai/faqs/<slug>/index.md` (etc.), and they will appear in `llms.txt` and `llms-full.txt` just like any other doc, which is the point.
+With default filters, these docs appear in `llms.txt` and `llms-full.txt`. Their companions follow the same URL rule: `/ai/faqs/<slug>/index.md`, or `/ai/faqs/<slug>.md` when `trailingSlash: false`.
 
 ### Optional validation
 
-Set `aiRoutes.validate: true` to fail the build (with warnings, not errors) when files under `ai/faqs/`, `ai/howto/`, or `ai/apps/` are missing the corresponding frontmatter payload (`faq`, `howTo`, `softwareApplication`). Off by default.
+Set `aiRoutes.validate: true` to warn when docs at `/ai/faqs/*`, `/ai/howto/*`, or `/ai/apps/*` lack the corresponding frontmatter payload (`faq`, `howTo`, `softwareApplication`). Validation uses route permalinks, not source directories, and does not fail the build. Set `verbose: true` for per-page details. Off by default.
 
 ### Helpers
 
@@ -345,7 +355,7 @@ Set `aiRoutes.validate: true` to fail the build (with warnings, not errors) when
 const {
   AI_ROUTE_PATTERNS,             // ['/ai', '/ai/**'] - glob patterns
   sitemapExclude,                // { ignorePatterns: AI_ROUTE_PATTERNS }
-  isAiRoute,                     // (permalink) => boolean
+  isAiRoute,                     // true for /ai/*; false for /ai itself
   buildStructuredDataAiExcludes, // (routePaths[]) => string[]
 } = require('@stackql/docusaurus-plugin-aeo/helpers');
 ```
@@ -394,7 +404,7 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
       '/blog/authors/**',
     ],
     include: null,            // null = all not-excluded
-    header: null,             // optional string prepended to llms.txt
+    header: null,             // optional text after the site title/tagline
     sections: {               // per-type section titles (used when
       docs: 'Documentation',  // instanceSections is null)
       blog: 'Blog',
@@ -431,10 +441,16 @@ Options are validated by a small handwritten validator at plugin construction. I
 
 ## Development
 
+Use Node.js 24.x to match CI. From the repository root:
+
 ```bash
-npm install
-npm test          # node --test: companion path rule, prompt template, MDX -> plain markdown
+npm ci
+npm test
 ```
+
+`npm test` runs every `test/*.test.js` file with Node's test runner: companion paths, Ask AI prompts, plain Markdown, alternate links/headers, `llms.txt`, and AI route classification.
+
+The [Tests workflow](.github/workflows/tests.yml) runs on every pull request targeting `main` and on pushes to `main`, using the committed lockfile and Node 24.x. To make it a merge gate, require the **Tests (Node 24)** status check in the branch protection rule or ruleset for `main`. Until that rule is enabled, a failed check does not block merging.
 
 The plain-markdown converter lives in `src/features/plainMarkdown.js` and is exercised by `test/plainMarkdown.test.js` with small MDX fixtures; add a fixture there when a new construct needs handling.
 
@@ -443,7 +459,7 @@ The plain-markdown converter lives in `src/features/plainMarkdown.js` and is exe
 The two plugins are complementary and intended to be used together:
 
 - `@stackql/docusaurus-plugin-structured-data` emits JSON-LD into page `<head>`. <https://github.com/stackql/docusaurus-plugin-structured-data>
-- `@stackql/docusaurus-plugin-aeo` does everything else AEO-adjacent: raw `.md` companions, `llms.txt`, the Ask AI button, the `/ai/*` convention.
+- `@stackql/docusaurus-plugin-aeo` provides plain-markdown `.md` companions by default (raw mode is optional), `llms.txt` / `llms-full.txt`, the Ask AI button, and the `/ai/*` convention.
 
 There is no overlap and no shared state. Add both:
 
