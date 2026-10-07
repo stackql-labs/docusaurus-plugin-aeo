@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const matter = require('gray-matter');
-const { companionPath } = require('../companionPath');
+const { companionPath, pageUrl } = require('../companionPath');
 const { toPlainMarkdown, resolveFormat } = require('./plainMarkdown');
 
 // Minimal glob matcher for route paths. Patterns like "/blog/tags/**",
@@ -121,21 +121,31 @@ async function ensureDir(p) {
   await fs.mkdir(path.dirname(p), { recursive: true });
 }
 
-// Put the page's title and description at the top of a plain companion so
-// an LLM sees them without parsing YAML. A body that already opens with an
-// H1 keeps it; the description goes under whichever H1 is there.
-function withTitleBlock(markdown, title, description) {
+// Put the page's title, description and canonical URL at the top of a
+// plain companion so an LLM sees them without parsing YAML, and can cite
+// the page:
+//
+//   # Title
+//
+//   > description
+//
+//   Source: https://site/route
+//
+// A body that already opens with an H1 keeps it; the rest goes under it.
+function withTitleBlock(markdown, title, description, sourceUrl) {
   const lines = markdown.split('\n');
   const first = lines.findIndex((l) => l.trim() !== '');
   const hasH1 = first >= 0 && /^#\s+\S/.test(lines[first]);
-  const quote = description ? `> ${String(description).replace(/\s+/g, ' ').trim()}` : null;
+  const extras = [];
+  if (description) extras.push(`> ${String(description).replace(/\s+/g, ' ').trim()}`);
+  if (sourceUrl) extras.push(`Source: ${sourceUrl}`);
   if (hasH1) {
-    if (!quote) return markdown;
-    return [...lines.slice(0, first + 1), '', quote, ...lines.slice(first + 1)].join('\n');
+    if (extras.length === 0) return markdown;
+    return [...lines.slice(0, first + 1), '', extras.join('\n\n'), ...lines.slice(first + 1)].join('\n');
   }
   const head = [];
   if (title) head.push(`# ${title}`);
-  if (quote) head.push(quote);
+  head.push(...extras);
   return head.length ? `${head.join('\n\n')}\n\n${markdown}` : markdown;
 }
 
@@ -147,7 +157,9 @@ module.exports = async function emitCompanions({
 }) {
   const { outDir, siteConfig, siteDir } = props;
   const trailingSlash = siteConfig.trailingSlash;
-  const format = options.format;
+  // 'clean' is accepted as a synonym for 'plain' (the name the external
+  // audit of 0.4.2 used for this behaviour).
+  const format = options.format === 'clean' ? 'plain' : options.format;
   const markdownConfigFormat = siteConfig.markdown && siteConfig.markdown.format;
 
   const items = collectCompanionItems(loadedContentByPlugin, options);
@@ -195,7 +207,12 @@ module.exports = async function emitCompanions({
           `[plugin-aeo] companions: ${path.relative(siteDir, sourcePath)} did not parse as ${sourceFormat} (${result.error && result.error.message}); used the regex stripper for its companion`,
         );
       }
-      body = withTitleBlock(result.markdown, item.title, item.description);
+      body = withTitleBlock(
+        result.markdown,
+        item.title,
+        item.description,
+        pageUrl(siteConfig.url, item.permalink),
+      );
     }
 
     const target = path.join(outDir, companionPath(item.permalink, trailingSlash));

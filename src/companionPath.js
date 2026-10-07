@@ -34,4 +34,22 @@ function companionUrl(siteUrl, routePath, trailingSlash) {
   return `${String(siteUrl || '').replace(/\/+$/, '')}${companionPath(routePath, trailingSlash)}`;
 }
 
-module.exports = { companionPath, companionUrl, normalizeRoute };
+// Site-relative path of the HTML file Docusaurus writes for a route, the
+// same rule as @docusaurus/core's pathnameToFilename once the route has
+// been normalised: '/foo.html' when trailingSlash is false, '/foo/index.html'
+// otherwise, '/index.html' for the root.
+function htmlPath(routePath, trailingSlash) {
+  const route = normalizeRoute(routePath);
+  if (route === '/') return '/index.html';
+  return trailingSlash === false ? `${route}.html` : `${route}/index.html`;
+}
+
+// Absolute URL of the page itself: canonical, no trailing slash except on
+// the root.
+function pageUrl(siteUrl, routePath) {
+  const base = String(siteUrl || '').replace(/\/+$/, '');
+  const route = normalizeRoute(routePath);
+  return route === '/' ? `${base}/` : `${base}${route}`;
+}
+
+module.exports = { companionPath, companionUrl, htmlPath, pageUrl, normalizeRoute };

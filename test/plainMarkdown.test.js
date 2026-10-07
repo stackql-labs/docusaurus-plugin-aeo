@@ -294,9 +294,16 @@ test('resolveFormat follows front matter, then site config, then extension', () 
   assert.equal(resolveFormat({ filePath: 'a.md' }), 'md');
 });
 
-test('withTitleBlock adds the title and description, or only the description under an existing H1', () => {
+test('withTitleBlock adds title, description and Source, or only the extras under an existing H1', () => {
   assert.equal(withTitleBlock('Body.\n', 'T', 'D'), '# T\n\n> D\n\nBody.\n');
-  assert.equal(withTitleBlock('# Own\n\nBody.\n', 'T', 'D'), '# Own\n\n> D\n\nBody.\n');
+  assert.equal(
+    withTitleBlock('Body.\n', 'T', 'D', 'https://example.com/t'),
+    '# T\n\n> D\n\nSource: https://example.com/t\n\nBody.\n',
+  );
+  assert.equal(
+    withTitleBlock('# Own\n\nBody.\n', 'T', 'D', 'https://example.com/t'),
+    '# Own\n\n> D\n\nSource: https://example.com/t\n\nBody.\n',
+  );
   assert.equal(withTitleBlock('# Own\n\nBody.\n', 'T', null), '# Own\n\nBody.\n');
   assert.equal(withTitleBlock('Body.\n', null, null), 'Body.\n');
 });

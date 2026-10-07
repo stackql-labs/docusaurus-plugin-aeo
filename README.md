@@ -49,7 +49,7 @@ For every emitted HTML route from the docs and blog plugins, this plugin writes 
 
 Two modes:
 
-- `companions.format: 'plain'` (default since 0.5.0): plain markdown rendered from the MDX source, with a `# Title` and `> description` block from the page metadata at the top. The source is parsed with the same remark toolchain Docusaurus compiles it with (remark-mdx, gfm, directives, comments) to locate every MDX construct, and the original text is then edited by source position:
+- `companions.format: 'plain'` (default since 0.5.0; `'clean'` is accepted as a synonym): plain markdown rendered from the MDX source, with a `# Title`, `> description` and `Source: <page URL>` block from the page metadata at the top, so an LLM can cite the page without parsing YAML. The source is parsed with the same remark toolchain Docusaurus compiles it with (remark-mdx, gfm, directives, comments) to locate every MDX construct, and the original text is then edited by source position:
   - `import` / `export` statements and `{expressions}` are removed (a string literal expression keeps its value)
   - presentational elements (`<svg>`, `<video>`, `<iframe>`, icons, ...) are dropped with their subtree
   - `<Tabs>` / `<TabItem>` become a bold label per tab followed by the tab's content; the label comes from the `label` attribute or from the `<Tabs values={[...]}>` expression
@@ -67,7 +67,22 @@ Fetch example:
 curl https://your-site.example/docs/intro/index.md
 ```
 
-**MIME type note.** Setting `Content-Type: text/markdown` from a static-site plugin is not possible. The file simply gets a `.md` extension and the host's MIME table handles it. Vercel, Netlify, Cloudflare Pages, GitHub Pages, and S3+CloudFront all serve `.md` as `text/markdown` or `text/plain` out of the box. If you serve from Nginx, ensure `text/markdown md;` is in your `mime.types`.
+**MIME type note.** Setting `Content-Type: text/markdown` from a static-site plugin is not possible. The file simply gets a `.md` extension and the host's MIME table handles it. Vercel, Netlify, Cloudflare Pages, GitHub Pages, and S3+CloudFront all serve `.md` as `text/markdown` or `text/plain` out of the box. If you serve from Nginx, ensure `text/markdown md;` is in your `mime.types`. What the plugin can do is tell the page's readers that the companion exists and what it is: see the alternate link below.
+
+### Advertising the companion from the page
+
+Every page that has a companion gets, in its `<head>`:
+
+```html
+<link rel="alternate" type="text/markdown" href="https://your-site.example/docs/intro.md">
+```
+
+inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaurus-plugin-structured-data` uses). An agent that lands on the HTML can find the markdown without guessing the URL, and agent-readiness checkers score it. The href is absolute and follows the same rule as the file on disk. Options:
+
+| Option | Default | Description |
+| --- | --- | --- |
+| `companions.alternateLink` | `true` | Insert the `<link rel="alternate" type="text/markdown">` tag into each page that has a companion. |
+| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships), for agents that read headers before bodies. |
 
 Non-content routes (custom React pages, redirects, the 404 page, search) are skipped silently. Enable `verbose: true` to log skips.
 
@@ -90,9 +105,15 @@ After feature 1 emits all companions, the plugin writes two files to the build r
   ## Blog
 
   - [Querying Snowflake with StackQL](https://stackql.io/blog/snowflake/index.md): ...
+
+  ## Optional
+
+  - [Full text of every page](https://stackql.io/llms-full.txt): one file with the content of every page listed above
   ```
 
-- `llms-full.txt` - every companion concatenated with a `\n---\n\n` separator, each block prefixed with a `Source: <page URL>` line (and the page's title, when the companion does not already open with it) so an LLM can cite individual sections.
+  The `## Optional` section is the llmstxt.org convention for secondary resources a reader can skip; it points at `llms-full.txt` whenever that file is emitted (`llmsTxt.linkFullTxt`, default `true`).
+
+- `llms-full.txt` - every companion concatenated with a `\n---\n\n` separator, each block carrying a `Source: <page URL>` line and the page's title (a plain companion already opens with both; a raw one has them added) so an LLM can cite individual sections. Limit it to chosen content instances or a byte budget with the object form of `llmsTxt.fullTxt` (below).
 
 Options:
 
@@ -104,7 +125,8 @@ Options:
 | `llmsTxt.header` | `null` | String prepended to `llms.txt` above the section list. Good for a project intro paragraph or links to key external resources. |
 | `llmsTxt.sections` | `{ docs: 'Documentation', blog: 'Blog', pages: 'Pages' }` | Section title overrides for the default per-type grouping. |
 | `llmsTxt.instanceSections` | `null` | Per-content-plugin-instance section map. When set, supersedes `sections` (see below). |
-| `llmsTxt.fullTxt` | `true` | Emit `llms-full.txt`. |
+| `llmsTxt.fullTxt` | `true` | Emit `llms-full.txt`. `true` is every section, uncapped. The object form `{ include?: string[], maxBytes?: number }` limits it: `include` names the content instances to concatenate (`'<pluginName>@<pluginId>'` keys, e.g. `'docusaurus-plugin-content-docs@ai'`; with per-type grouping the keys are `docs`, `blog`, `pages`), in `llms.txt` section order; `maxBytes` stops appending once the next page would cross the cap, so the file always ends on a whole page. Agents read a bounded prefix of the file (agentready reads the first 64 KiB), so a 1.4 MB corpus is mostly never seen; pick the sections that matter and cap it. |
+| `llmsTxt.linkFullTxt` | `true` | Add the `## Optional` section to `llms.txt` with a link to `llms-full.txt`. |
 
 Glob patterns are matched against route permalinks. `**` matches across path segments; `*` matches within a single segment.
 
@@ -354,8 +376,10 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
   // Feature 1
   companions: {
     enabled: true,            // emit .md siblings
-    format: 'plain',          // 'plain' | 'raw'
+    format: 'plain',          // 'plain' ('clean' is a synonym) | 'raw'
     exclude: [],              // route glob patterns to skip
+    alternateLink: true,      // <link rel="alternate" type="text/markdown"> in each page
+    linkHeader: false,        // also a Link: header via a Netlify _headers file
   },
 
   // Feature 2
@@ -380,7 +404,9 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
                               // sections when set. Shape:
                               //   { '${pluginName}@${pluginId}':
                               //       { title: string, order?: number } }
-    fullTxt: true,            // emit llms-full.txt
+    fullTxt: true,            // emit llms-full.txt: true | false |
+                              //   { include: ['<plugin>@<id>'], maxBytes: 65536 }
+    linkFullTxt: true,        // "## Optional" section in llms.txt -> llms-full.txt
   },
 
   // Feature 3

@@ -5,6 +5,7 @@
 //   ai/faqs/<slug>.md          -> must declare a `faq` frontmatter object
 //   ai/howto/<slug>.md         -> must declare a `howTo` frontmatter object
 //   ai/howtos/<slug>.md        -> same as above
+//   ai/how-tos/<slug>.md       -> same as above
 //   ai/apps/<slug>.md          -> must declare a `softwareApplication`
 //                                   frontmatter object
 //
@@ -16,6 +17,8 @@ const KIND_FOR_DIR = {
   faq: 'faq',
   howto: 'howTo',
   howtos: 'howTo',
+  'how-tos': 'howTo',
+  'how-to': 'howTo',
   apps: 'softwareApplication',
   app: 'softwareApplication',
   applications: 'softwareApplication',

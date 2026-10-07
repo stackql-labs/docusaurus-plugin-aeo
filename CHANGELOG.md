@@ -2,7 +2,7 @@
 
 ## 0.5.0
 
-Plain-markdown companions, and one rule for where a companion lives. Raised against stackql.io, where the Ask AI prompt on the homepage read `https://stackql.io.md` and every `.md` URL returned raw MDX (imports, MUI components, tab definitions and inline SVG path data before the first sentence).
+Plain-markdown companions, one rule for where a companion lives, and the companion advertised from its page. Raised against stackql.io, where the Ask AI prompt on the homepage read `https://stackql.io.md` and every `.md` URL returned raw MDX (imports, MUI components, tab definitions and inline SVG path data before the first sentence), and from an independent agent-readiness audit of the built site (alternate link, `llms-full.txt` reference and size, `Source:` URLs, the `how-tos` alias).
 
 ### Changed (breaking)
 
@@ -10,6 +10,15 @@ Plain-markdown companions, and one rule for where a companion lives. Raised agai
 - **Default `askAi.promptTemplate` is `'Read {companionUrl} and help me understand it. ...'`.** `{companionUrl}` is the page's `.md` file by the same rule feature 1 writes it. `{pageUrl}` is unchanged (the page, no trailing slash). A custom template still using the v0.4 idiom `{pageUrl}.md` keeps working: that sequence now resolves to `{companionUrl}` instead of being computed from the pathname, which produced `https://site.md` on the homepage and `/foo.md` on sites that build `/foo/index.html`.
 - **The Ask AI button is only rendered on pages that have a companion.** Generated category index pages, React pages and blog list pages have no source markdown and so no `.md` file; the button used to point readers at a 404 there. The route list is set as plugin global data from `allContentLoaded` (Docusaurus 3 merges it with the `contentLoaded` data); if it is absent the button shows everywhere as before. With `companions.enabled: false` the button shows everywhere and the prompt uses the page URL.
 - **`llms.txt` links are absolute** (`https://site/foo.md`), as the llms.txt spec's examples are. The file is read away from the site, where a relative link has no base.
+
+### Added
+
+- **`<link rel="alternate" type="text/markdown" href="...">` in every page that has a companion** (`companions.alternateLink`, default `true`), inserted into the built HTML in `postBuild`, with the absolute companion URL from the same rule the file is written by. `companions.linkHeader` (default `false`) also writes the relation as a `Link:` header per route in a Netlify-style `_headers` file, appended to one the site already ships.
+- **`## Optional` section in `llms.txt`** linking `llms-full.txt` (`llmsTxt.linkFullTxt`, default `true`), the llmstxt.org convention for secondary resources.
+- **`llmsTxt.fullTxt` object form** `{ include: ['<plugin>@<id>', ...], maxBytes }` to limit `llms-full.txt` to chosen content instances and/or a byte budget; the file stops before the page that would cross the cap. The boolean form is unchanged (`true` = everything).
+- Plain companions carry a `Source: <page URL>` line under the title and description, and `llms-full.txt` reuses it rather than adding a second one.
+- `companions.format: 'clean'` is accepted as a synonym for `'plain'`.
+- `src/features/aiRoutes.js`: `how-tos` and `how-to` directory names map to the `howTo` payload (only `howto` / `howtos` did; stackql.io uses `how-tos`).
 
 ### Fixed
 
@@ -21,7 +30,7 @@ Plain-markdown companions, and one rule for where a companion lives. Raised agai
 
 - `src/companionPath.js` (`companionPath`, `companionUrl`, `normalizeRoute`) and `src/askAiPrompt.js` (`fillPrompt`), plain CommonJS shared by the Node side and the theme component.
 - Runtime dependencies on `unified`, `remark-parse`, `remark-mdx`, `remark-gfm`, `remark-directive` and `@slorber/remark-comment` at the versions `@docusaurus/mdx-loader` 3.x already ships, so npm dedupes them.
-- A test suite (`npm test`, `node --test`): the companion path rule, the prompt template, and MDX fixtures for the converter (tabs, nested containers and dedent, link recovery, inline elements, details/summary, comments and heading ids, string-literal expressions, `md` format, the parse-failure fallback, CRLF sources).
+- A test suite (`npm test`, `node --test`): the companion path and HTML path rules, the prompt template, MDX fixtures for the converter (tabs, nested containers and dedent, link recovery, inline elements, details/summary, comments and heading ids, string-literal expressions, `md` format, the parse-failure fallback, CRLF sources), `llms.txt` rendering (sections, absolute links, the Optional block, the `fullTxt` forms), the alternate-link insertion (both `trailingSlash` layouts, idempotence, `_headers`), and the `/ai/*` directory classifier.
 
 ## 0.4.2
 
