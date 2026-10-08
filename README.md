@@ -1,4 +1,5 @@
-[![NPM Version](https://img.shields.io/npm/v/%40stackql%2Fdocusaurus-plugin-aeo)](https://www.npmjs.com/package/@stackql/docusaurus-plugin-aeo)
+[![NPM Version](https://img.shields.io/npm/v/%40stackql%2Fdocusaurus-plugin-aeo)](https://www.npmjs.com/package/@stackql/docusaurus-plugin-aeo) 
+[![NPM Downloads](https://img.shields.io/npm/d18m/%40stackql%2Fdocusaurus-plugin-aeo)](https://www.npmjs.com/package/@stackql/docusaurus-plugin-aeo)
 
 # @stackql/docusaurus-plugin-aeo
 
