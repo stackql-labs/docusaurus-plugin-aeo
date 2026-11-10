@@ -48,7 +48,7 @@ module.exports = {
 
 ## Feature 1: `.md` companion files
 
-For each doc or blog post with a readable source file, this plugin writes a sibling `.md` file unless its permalink matches `companions.exclude`. The companion mirrors the HTML layout: a page at `/docs/intro` gets `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`). A doc or blog post at the site root gets `/index.md`. The same URL rule (`src/companionPath.js`) is used by `llms.txt` and the Ask AI button.
+For each doc or blog post with a readable source file, this plugin writes a sibling `.md` file unless its route matches `companions.exclude` (see [Route patterns](#route-patterns)). The companion mirrors the HTML layout: a page at `/docs/intro` gets `/docs/intro/index.md` (or `/docs/intro.md` if `siteConfig.trailingSlash` is `false`). A doc or blog post at the site root gets `/index.md`. The same URL rule (`src/companionPath.js`) is used by `llms.txt` and the Ask AI button.
 
 Two modes:
 
@@ -87,13 +87,32 @@ inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaur
 | Option | Default | Description |
 | --- | --- | --- |
 | `companions.alternateLink` | `true` | Insert the `<link rel="alternate" type="text/markdown">` tag into each page that has a companion. |
-| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships). Requires `companions.alternateLink: true`. |
+| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships). On a site with several locales the one file at the build root carries the rules of every locale. Requires `companions.alternateLink: true`. |
 
 Generated category indexes, custom React pages and blog listing pages do not get companions. `verbose: true` logs unreadable source files and missing HTML during alternate-link insertion.
 
-### Localized sites
+### Localized sites and non-root `baseUrl`
 
-On a site with Docusaurus i18n the plugin runs once per locale, like every plugin, and needs no configuration: each locale gets its own companions (`/de/docs/intro.md` from the translated source, or from the default-locale source when a page has no translation), its own `/de/llms.txt` and `/de/llms-full.txt`, and alternate links and `Source:` lines that carry the locale prefix. The localized home page `/de/` is a root, so its companion is `/de/index.md`. The same logic covers a site built at a non-root `baseUrl`.
+The plugin works from `siteConfig.url` and `siteConfig.baseUrl` as Docusaurus reports them for the build, so a site at the root, a site built at `/docs/` and a site with several locales are configured the same way.
+
+On a site with Docusaurus i18n the plugin runs once per locale, like every plugin, and needs no extra configuration: each locale gets its own companions (`/de/docs/intro.md` from the translated source, or from the default-locale source when a page has no translation), its own `/de/llms.txt` and `/de/llms-full.txt`, and alternate links and `Source:` lines that carry the locale prefix. The localized home page `/de/` is a root, so its companion is `/de/index.md`. The same holds for a site built at a non-root `baseUrl`: files are written relative to the build directory, URLs carry the base.
+
+### Route patterns
+
+`companions.exclude`, `llmsTxt.exclude` and `llmsTxt.include` take glob patterns for routes. `**` matches across path segments; `*` and `?` match within a single segment.
+
+Write a pattern for the route as it is on the site, without the base URL: `/docs/internal/**`. Docusaurus permalinks carry the base URL (`/de/docs/internal/notes` in a `de` build, `/docs/guide/setup` on a site built at `/docs/`), so a pattern is matched against the route both with and without it. One list therefore applies to every locale, and a pattern that includes the base still works and can target a single locale:
+
+```js
+companions: {
+  exclude: [
+    '/docs/internal/**',  // every locale: /docs/internal/..., /de/docs/internal/...
+    '/de/blog/**',        // the de locale only
+  ],
+},
+```
+
+A page excluded from companions has no `.md` file, no alternate link, no `llms.txt` entry and no Ask AI button.
 
 ## Feature 2: `llms.txt` and `llms-full.txt`
 
@@ -137,7 +156,7 @@ Options:
 | `llmsTxt.fullTxt` | `true` | Emit `llms-full.txt`. `true` is every section, uncapped. The object form `{ include?: string[], maxBytes?: number }` limits it: `include` names the content instances to concatenate (`'<pluginName>@<pluginId>'` keys, e.g. `'docusaurus-plugin-content-docs@ai'`; with per-type grouping the keys are `docs`, `blog`, `pages`), in `llms.txt` section order; `maxBytes` stops appending once the next page would cross the cap, so the file always ends on a whole page. The budget includes section headings and separators. If the first page exceeds it, the file is empty. An omitted or empty `include` selects all sections. |
 | `llmsTxt.linkFullTxt` | `true` | Add the `## Optional` section to `llms.txt` with a link to `llms-full.txt`. |
 
-Glob patterns are matched against route permalinks. `**` matches across path segments; `*` matches within a single segment.
+`exclude` and `include` follow the rules in [Route patterns](#route-patterns): a pattern matches a route with or without the base URL, so the defaults apply to every locale.
 
 ### Per-instance sectioning
 
@@ -242,7 +261,7 @@ Template placeholders:
 | Placeholder | Value |
 | --- | --- |
 | `{companionUrl}` | The page's `.md` companion, by the same rule feature 1 writes it: `https://site/index.md` for the homepage, `https://site/foo.md` or `https://site/foo/index.md` depending on `trailingSlash`. With feature 1 disabled, the page URL. |
-| `{pageUrl}` | The page itself: canonical URL, no trailing slash. |
+| `{pageUrl}` | The page itself: canonical URL, no trailing slash, except on a root (`https://site/`, or a base URL such as `https://site/de/`). |
 | `{pageUrl}.md` | Still honoured for templates written against v0.4, and resolves to `{companionUrl}`. (On its own it produced `https://site.md` for the homepage and the wrong path on sites that build `/foo/index.html`.) |
 
 The button only renders on pages that have a companion. Generated category index pages, React pages and blog list pages have no `.md` file, so on those the button is not shown rather than sending the reader to a 404. (The list of routes comes from `allContentLoaded`; with feature 1 disabled, the companion-route filter is disabled and the prompt uses the page URL wherever the button is rendered.)
@@ -259,10 +278,23 @@ Options:
 | --- | --- | --- |
 | `askAi.enabled` | `true` | When `false`, the theme components are not registered. |
 | `askAi.providerOrder` | `['claude', 'chatgpt', 'perplexity']` | Order of items in the dropdown. Omit providers to hide them; an empty array falls back to the default order. Valid values: `'claude'`, `'chatgpt'`, `'perplexity'`. |
-| `askAi.promptTemplate` | `'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.'` | Prompt sent to each provider. `{companionUrl}` is the page's `.md` companion (the page URL when feature 1 is disabled); `{pageUrl}` is the page's canonical URL (no trailing slash). See the placeholder table above. |
+| `askAi.promptTemplate` | `'Read {companionUrl} and help me understand it. Summarize the key points, then ask me one clarifying question to dig deeper.'` | Prompt sent to each provider. `{companionUrl}` is the page's `.md` companion (the page URL when feature 1 is disabled); `{pageUrl}` is the page's canonical URL (no trailing slash except on a root). See the placeholder table above. |
 | `askAi.placement` | `'breadcrumb-row'` | `'breadcrumb-row'` puts the button at the top of every doc/blog page (docs breadcrumb row, or above the blog title). `'none'` disables all bundled theme components, including the `@theme/AskAiButton` alias. See custom placement below. |
 
-The button is built from [MUI](https://mui.com) primitives - outlined `Button` with a `KeyboardArrowDownIcon` caret as the trigger, and a `Menu` of `MenuItem` rows for the providers. Theming reads `--ifm-color-primary` and `--ifm-font-family-base` via MUI's `sx` prop, so dark/light mode work automatically. The MUI `Menu` handles click-outside-to-close and Esc-to-close natively.
+The button is built from [MUI](https://mui.com) primitives - outlined `Button` with a `KeyboardArrowDownIcon` caret as the trigger, and a `Menu` of `MenuItem` rows for the providers. Theming reads `--ifm-color-primary` and `--ifm-font-family-base` via MUI's `sx` prop, so the button takes the site's own colours and dark/light mode work automatically. The MUI `Menu` handles click-outside-to-close and Esc-to-close natively.
+
+### Translating the button
+
+The visible strings go through Docusaurus `translate()`, so `docusaurus write-translations --locale <locale>` extracts them into `i18n/<locale>/code.json` with the rest of the theme's strings:
+
+| Id | Default |
+| --- | --- |
+| `aeo.askAi.button` | Ask AI about this page |
+| `aeo.askAi.provider.claude` | Ask Claude |
+| `aeo.askAi.provider.chatgpt` | Ask ChatGPT |
+| `aeo.askAi.provider.perplexity` | Ask Perplexity |
+
+A locale with no translation for an id shows the default. The prompt itself is `askAi.promptTemplate`; in a localized build its URLs point at that locale's page and companion.
 
 ### Peer dependencies
 
@@ -350,20 +382,35 @@ ai-content/
 
 With default filters, these docs appear in `llms.txt` and `llms-full.txt`. Their companions follow the same URL rule: `/ai/faqs/<slug>/index.md`, or `/ai/faqs/<slug>.md` when `trailingSlash: false`.
 
+The convention is relative to the site's base URL: on a site built at `/docs/` the routes are `/docs/ai/*`, and in a `de` build they are `/de/ai/*`.
+
 ### Optional validation
 
-Set `aiRoutes.validate: true` to warn when docs at `/ai/faqs/*`, `/ai/howto/*`, or `/ai/apps/*` lack the corresponding frontmatter payload (`faq`, `howTo`, `softwareApplication`). Validation uses route permalinks, not source directories, and does not fail the build. Set `verbose: true` for per-page details. Off by default.
+Set `aiRoutes.validate: true` to warn when docs at `/ai/faqs/*`, `/ai/howto/*`, or `/ai/apps/*` lack the corresponding frontmatter payload (`faq`, `howTo`, `softwareApplication`). Validation uses route permalinks (relative to the base URL, so every locale is checked), not source directories, and does not fail the build. Set `verbose: true` for per-page details. Off by default.
 
 ### Helpers
 
 ```js
 const {
   AI_ROUTE_PATTERNS,             // ['/ai', '/ai/**'] - glob patterns
+  aiRoutePatterns,               // (baseUrl) => the same patterns under a base URL
   sitemapExclude,                // { ignorePatterns: AI_ROUTE_PATTERNS }
-  isAiRoute,                     // true for /ai/*; false for /ai itself
-  buildStructuredDataAiExcludes, // (routePaths[]) => string[]
+  isAiRoute,                     // (route, baseUrl?) true for /ai/*; false for /ai itself
+  buildStructuredDataAiExcludes, // (routePaths[], baseUrl?) => string[]
 } = require('@stackql/docusaurus-plugin-aeo/helpers');
 ```
+
+`AI_ROUTE_PATTERNS` and `sitemapExclude` describe a site at the root with one locale. These helpers run in your config, where other plugins match the full route path, base URL included (the Docusaurus docs say as much of the sitemap plugin's `ignorePatterns`). With a non-root `baseUrl` or several locales, build the list from `aiRoutePatterns`, one call per base URL:
+
+```js
+const { aiRoutePatterns } = require('@stackql/docusaurus-plugin-aeo/helpers');
+
+// a site with en at / and de at /de/
+const ignorePatterns = ['/', '/de/'].flatMap(aiRoutePatterns);
+// ['/ai', '/ai/**', '/de/ai', '/de/ai/**']
+```
+
+`isAiRoute` and `buildStructuredDataAiExcludes` take the base URL as an optional second argument.
 
 **Heads-up on the structured-data plugin.** `@stackql/docusaurus-plugin-structured-data`'s `themeConfig.structuredData.excludedRoutes` compares routes with strict equality, so glob patterns like `/ai/**` do not work there. Use one of these approaches:
 
@@ -453,7 +500,7 @@ npm ci
 npm test
 ```
 
-`npm test` runs every `test/*.test.js` file with Node's test runner: companion paths, Ask AI prompts, plain Markdown, alternate links/headers, `llms.txt`, and AI route classification.
+`npm test` runs every `test/*.test.js` file with Node's test runner: companion paths and files, route patterns, Ask AI prompts and the rendered button, plain Markdown, alternate links/headers, `llms.txt`, AI route classification and helpers, and the plugin run once per locale as Docusaurus runs it (`test/localizedBuild.test.js`). Shared fixtures and the loader that renders theme components in Node are in `test/helpers/`. There are no dev dependencies: the tests use the peer dependencies and the Babel setup that comes with `@docusaurus/core`.
 
 The [Tests workflow](.github/workflows/tests.yml) runs on every pull request targeting `main` and on pushes to `main`, using the committed lockfile and Node 24.x. To make it a merge gate, require the **Tests (Node 24)** status check in the branch protection rule or ruleset for `main`. Until that rule is enabled, a failed check does not block merging.
 

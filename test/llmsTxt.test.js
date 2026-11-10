@@ -56,6 +56,64 @@ test('fullTxtBlock adds title and Source only when the body lacks them', () => {
   assert.equal(fullTxtBlock({ body: plain, item, siteUrl: 'https://example.com' }), plain);
 });
 
+// A localized build: siteConfig.baseUrl is /de/ and every permalink is
+// under it.
+const deSiteConfig = { ...siteConfig, baseUrl: '/de/' };
+const deItems = items.map((item) => ({ ...item, permalink: `/de${item.permalink}` }));
+
+test('localized build: llms.txt links carry the locale prefix and point at /de/llms-full.txt', () => {
+  const sections = buildSections(deItems, options, false);
+  const txt = renderLlmsTxt({ siteConfig: deSiteConfig, siteUrl: deSiteConfig.url, trailingSlash: false, sections, options, companionsEnabled: true });
+  assert.equal(
+    txt,
+    `# Site
+
+> A tagline
+
+## Documentation
+
+- [Home](https://example.com/de/index.md): The home page
+- [Intro](https://example.com/de/docs/intro.md): Start here
+
+## Blog
+
+- [Post](https://example.com/de/blog/post.md): A tagline
+
+## Optional
+
+- [Full text of every page](https://example.com/de/llms-full.txt): one file with the content of every page listed above
+`,
+  );
+});
+
+test('localized build with trailingSlash true: the localized home is /de/index.md, pages are /de/foo/index.md', () => {
+  const sections = buildSections(deItems, options, false);
+  const txt = renderLlmsTxt({ siteConfig: deSiteConfig, siteUrl: deSiteConfig.url, trailingSlash: true, sections, options, companionsEnabled: true });
+  assert.match(txt, /\[Home\]\(https:\/\/example\.com\/de\/index\.md\)/);
+  assert.match(txt, /\[Intro\]\(https:\/\/example\.com\/de\/docs\/intro\/index\.md\)/);
+  assert.match(txt, /\[Post\]\(https:\/\/example\.com\/de\/blog\/post\/index\.md\)/);
+});
+
+test('localized build with companions disabled: page links carry the locale prefix', () => {
+  const sections = buildSections(deItems, options, false);
+  const txt = renderLlmsTxt({ siteConfig: deSiteConfig, siteUrl: deSiteConfig.url, trailingSlash: false, sections, options, companionsEnabled: false });
+  assert.match(txt, /\[Home\]\(https:\/\/example\.com\/de\/\)/);
+  assert.match(txt, /\[Intro\]\(https:\/\/example\.com\/de\/docs\/intro\)/);
+  assert.doesNotMatch(txt, /Optional/);
+});
+
+test('fullTxtBlock with a base URL: Source keeps the prefix, the localized home keeps its slash', () => {
+  const siteUrl = 'https://example.com';
+  assert.equal(
+    fullTxtBlock({ body: 'Raw body.\n', item: { permalink: '/de/docs/intro/', title: 'Intro' }, siteUrl, baseUrl: '/de/' }),
+    '# Intro\n\nSource: https://example.com/de/docs/intro\n\nRaw body.\n',
+  );
+  assert.equal(
+    fullTxtBlock({ body: 'Raw body.\n', item: { permalink: '/de/', title: 'Home' }, siteUrl, baseUrl: '/de/' }),
+    '# Home\n\nSource: https://example.com/de/\n\nRaw body.\n',
+  );
+});
+
 test('fullTxtOptions normalises the boolean and object forms', () => {
   assert.equal(fullTxtOptions(false), null);
   assert.deepEqual(fullTxtOptions(true), { include: null, maxBytes: null });

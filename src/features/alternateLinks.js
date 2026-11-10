@@ -8,7 +8,8 @@
 // the page can find the markdown without guessing the URL. Optionally the
 // same relation is written as an HTTP header for Netlify-style hosts via a
 // `_headers` file (`Link: <url>; rel="alternate"; type="text/markdown"`),
-// for agents that read headers before bodies.
+// for agents that read headers before bodies. The file sits at the root of
+// the build directory, shared by every locale built into it.
 //
 // Same approach as @stackql/docusaurus-plugin-structured-data, which also
 // post-processes the built HTML in postBuild: the file is a string, the
@@ -26,6 +27,22 @@ function linkTag(href) {
 
 function headerBlock(route, href) {
   return `${route}\n  Link: <${href}>; rel="alternate"; type="text/markdown"\n`;
+}
+
+// Where `_headers` goes. Hosts read it from the root of the deployed
+// directory only. A build of several locales puts every locale but the
+// default in a sub-directory of the build directory named after the locale
+// (baseUrl '/de/' or '/docs/de/' -> build/de), so that locale's rules belong
+// one level up, in the file the default locale's build wrote (Docusaurus
+// builds the default locale first). Every other build is its own root: one
+// locale, a locale built on its own (`--locale de`, baseUrl '/'), a locale
+// given its own baseUrl, or a core that passes no i18n.
+function headersDir({ outDir, siteConfig, i18n }) {
+  const locale = i18n && i18n.currentLocale;
+  if (!locale || locale === i18n.defaultLocale) return outDir;
+  const base = String(siteConfig.baseUrl || '/').replace(/\/+$/, '');
+  const nested = base.endsWith(`/${locale}`) && path.basename(outDir) === locale;
+  return nested ? path.dirname(outDir) : outDir;
 }
 
 async function readIfExists(file) {
@@ -88,12 +105,17 @@ module.exports = async function injectAlternateLinks({
   }
 
   if (linkHeader && headerBlocks.length > 0) {
-    // Append to a `_headers` the site may already ship from static/.
-    const file = path.join(outDir, '_headers');
+    // Append to a `_headers` the site may already ship from static/, or
+    // that another locale's build has already added its rules to. A rule
+    // already in the file is not written again.
+    const file = path.join(headersDir(props), '_headers');
     const existing = (await readIfExists(file)) || '';
-    const banner = '# @stackql/docusaurus-plugin-aeo: .md companions as Link headers\n';
-    const sep = existing && !existing.endsWith('\n') ? '\n\n' : existing ? '\n' : '';
-    await fs.writeFile(file, `${existing}${sep}${banner}${headerBlocks.join('')}`, 'utf8');
+    const fresh = headerBlocks.filter((block) => !existing.includes(block));
+    if (fresh.length > 0) {
+      const banner = '# @stackql/docusaurus-plugin-aeo: .md companions as Link headers\n';
+      const sep = existing && !existing.endsWith('\n') ? '\n\n' : existing ? '\n' : '';
+      await fs.writeFile(file, `${existing}${sep}${banner}${fresh.join('')}`, 'utf8');
+    }
   }
 
   if (verbose) {

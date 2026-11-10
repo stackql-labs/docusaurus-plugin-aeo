@@ -2,7 +2,8 @@
 // can bundle it and the tests can require it.
 //
 //   {companionUrl}  the page's .md companion (absolute URL)
-//   {pageUrl}       the page itself (canonical, no trailing slash)
+//   {pageUrl}       the page itself (canonical: no trailing slash, except
+//                   on a root - the site root or a base URL such as '/de/')
 //
 // The v0.4 idiom `{pageUrl}.md` is still honoured so a custom template
 // keeps working. It was wrong for the homepage (`https://site.md`) and for

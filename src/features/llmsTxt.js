@@ -1,37 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const { companionUrl, pageUrl } = require('../companionPath');
-
-function matchAny(value, patterns) {
-  if (!patterns || patterns.length === 0) return false;
-  for (const p of patterns) {
-    if (toRegExp(p).test(value)) return true;
-  }
-  return false;
-}
-
-function toRegExp(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') {
-      if (glob[i + 1] === '*') {
-        re += '.*';
-        i++;
-        if (glob[i + 1] === '/') i++;
-      } else {
-        re += '[^/]*';
-      }
-    } else if (c === '?') {
-      re += '[^/]';
-    } else if ('.+^$()|{}[]\\'.includes(c)) {
-      re += '\\' + c;
-    } else {
-      re += c;
-    }
-  }
-  return new RegExp('^' + re + '$');
-}
+const { matchesRoute } = require('../routeGlob');
 
 function groupKind(kind, pluginId) {
   if (kind === 'docs') return 'docs';
@@ -230,12 +200,14 @@ module.exports = async function emitLlmsTxt({
   const trailingSlash = siteConfig.trailingSlash;
   const siteUrl = (siteConfig.url || '').replace(/\/+$/, '');
 
-  // Filter the companions through include/exclude rules.
+  // Filter the companions through include/exclude rules. A pattern matches
+  // a route with or without siteConfig.baseUrl (see src/routeGlob.js), so
+  // the same patterns apply in every locale's build.
   const filtered = emittedCompanions.filter((item) => {
-    if (options.include && !options.include.some((p) => toRegExp(p).test(item.permalink))) {
+    if (options.include && !matchesRoute(item.permalink, options.include, siteConfig.baseUrl)) {
       return false;
     }
-    if (matchAny(item.permalink, options.exclude)) {
+    if (matchesRoute(item.permalink, options.exclude, siteConfig.baseUrl)) {
       return false;
     }
     return true;

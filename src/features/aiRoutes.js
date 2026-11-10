@@ -12,6 +12,8 @@
 // Anything else under /ai/* is permitted without a payload (consumer can
 // extend this with additional checks if needed).
 
+const { outputRoute } = require('../companionPath');
+
 const KIND_FOR_DIR = {
   faqs: 'faq',
   faq: 'faq',
@@ -24,10 +26,14 @@ const KIND_FOR_DIR = {
   applications: 'softwareApplication',
 };
 
-function classify(permalink) {
-  // permalink like "/ai/faqs/foo"
-  if (!permalink.startsWith('/ai/')) return null;
-  const segments = permalink.split('/').filter(Boolean); // ["ai", "faqs", "foo"]
+// `baseUrl` is siteConfig.baseUrl. The convention is relative to it: on a
+// site built at '/docs/' the routes are '/docs/ai/...', and in a localized
+// build '/de/ai/...'.
+function classify(permalink, baseUrl) {
+  // route like "/ai/faqs/foo"
+  const route = outputRoute(permalink, baseUrl);
+  if (!route.startsWith('/ai/')) return null;
+  const segments = route.split('/').filter(Boolean); // ["ai", "faqs", "foo"]
   if (segments.length < 2) return null;
   const dir = segments[1].toLowerCase();
   return KIND_FOR_DIR[dir] || null;
@@ -45,7 +51,7 @@ function collectDocs(content) {
   return out;
 }
 
-function validateAiRoutes({ loadedContentByPlugin, verbose }) {
+function validateAiRoutes({ loadedContentByPlugin, baseUrl, verbose }) {
   const problems = [];
   for (const [, entry] of loadedContentByPlugin) {
     if (entry.pluginName !== 'docusaurus-plugin-content-docs') continue;
@@ -53,7 +59,7 @@ function validateAiRoutes({ loadedContentByPlugin, verbose }) {
     for (const doc of docs) {
       const permalink = doc.permalink;
       if (!permalink) continue;
-      const expectedKey = classify(permalink);
+      const expectedKey = classify(permalink, baseUrl);
       if (!expectedKey) continue;
       const fm = doc.frontMatter || {};
       const value = fm[expectedKey];

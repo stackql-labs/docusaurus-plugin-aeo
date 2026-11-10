@@ -72,11 +72,18 @@ function pageUrl(siteUrl, routePath, baseUrl) {
 // build/de/intro.html. URLs keep the full route (pass baseUrl to the
 // functions above); file paths under outDir use this route with no base.
 function outputRoute(routePath, baseUrl) {
-  const route = normalizeRoute(routePath);
+  return stripBase(normalizeRoute(routePath), baseUrl);
+}
+
+// A route with siteConfig.baseUrl removed and nothing else changed (a
+// trailing slash stays): '/de/blog/post/' under '/de/' is '/blog/post/', and
+// the base itself is '/'. A route outside the base is returned as is.
+function stripBase(routePath, baseUrl) {
+  const route = String(routePath || '');
   const base = String(baseUrl || '/').replace(/\/+$/, '');
   if (base === '') return route;
   if (route === base) return '/';
   return route.startsWith(`${base}/`) ? route.slice(base.length) : route;
 }
 
-module.exports = { companionPath, companionUrl, htmlPath, pageUrl, outputRoute, normalizeRoute };
+module.exports = { companionPath, companionUrl, htmlPath, pageUrl, outputRoute, stripBase, normalizeRoute };

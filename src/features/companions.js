@@ -2,43 +2,8 @@ const path = require('path');
 const fs = require('fs').promises;
 const matter = require('gray-matter');
 const { companionPath, pageUrl, outputRoute } = require('../companionPath');
+const { matchAny, matchesRoute } = require('../routeGlob');
 const { toPlainMarkdown, resolveFormat } = require('./plainMarkdown');
-
-// Minimal glob matcher for route paths. Patterns like "/blog/tags/**",
-// "/search". Avoids pulling micromatch directly.
-function matchAny(value, patterns) {
-  if (!patterns || patterns.length === 0) return false;
-  for (const p of patterns) {
-    if (toRegExp(p).test(value)) return true;
-  }
-  return false;
-}
-
-function toRegExp(glob) {
-  // Minimal globstar -> regex translation. Supports: **, *, ?, character
-  // classes left untouched. Good enough for route paths like
-  // "/blog/tags/**" and "/search".
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*') {
-      if (glob[i + 1] === '*') {
-        re += '.*';
-        i++;
-        if (glob[i + 1] === '/') i++;
-      } else {
-        re += '[^/]*';
-      }
-    } else if (c === '?') {
-      re += '[^/]';
-    } else if ('.+^$()|{}[]\\'.includes(c)) {
-      re += '\\' + c;
-    } else {
-      re += c;
-    }
-  }
-  return new RegExp('^' + re + '$');
-}
 
 function collectFromDocs(content, pluginName, pluginId) {
   // Docs plugin loaded content shape:
@@ -91,8 +56,10 @@ function collectFromBlog(content, pluginName, pluginId) {
 // minus `companions.exclude`. Generated category indexes, React pages and
 // blog list/tag/author pages have no source and are not in this list. Used
 // by postBuild to emit the files and by allContentLoaded to tell the Ask AI
-// button which routes have one.
-function collectCompanionItems(loadedContentByPlugin, options) {
+// button which routes have one. `baseUrl` is siteConfig.baseUrl: an exclude
+// pattern matches a route with or without it (see src/routeGlob.js), so the
+// same patterns apply in every locale's build.
+function collectCompanionItems(loadedContentByPlugin, options, baseUrl) {
   const items = [];
   for (const [, entry] of loadedContentByPlugin) {
     const { pluginName, pluginId, content } = entry;
@@ -104,7 +71,7 @@ function collectCompanionItems(loadedContentByPlugin, options) {
     // Custom pages plugin emits React components, not markdown. Skip silently.
   }
   const exclude = (options && options.exclude) || [];
-  return items.filter((item) => !matchAny(item.permalink, exclude));
+  return items.filter((item) => !matchesRoute(item.permalink, exclude, baseUrl));
 }
 
 function resolveSourcePath(sourceRef, siteDir) {
@@ -162,7 +129,7 @@ module.exports = async function emitCompanions({
   const format = options.format === 'clean' ? 'plain' : options.format;
   const markdownConfigFormat = siteConfig.markdown && siteConfig.markdown.format;
 
-  const items = collectCompanionItems(loadedContentByPlugin, options);
+  const items = collectCompanionItems(loadedContentByPlugin, options, siteConfig.baseUrl);
 
   const emitted = [];
   let fallbacks = 0;

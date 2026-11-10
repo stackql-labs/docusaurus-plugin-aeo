@@ -182,6 +182,12 @@ module.exports = function pluginAeo(context, rawOptions) {
   const options = normalizeOptions(rawOptions);
   validateOptions(options);
 
+  // siteConfig.baseUrl for this build. Docusaurus constructs the plugin
+  // once per locale, and a localized build has its own base URL ('/de/');
+  // routes carry it, and the route conventions below are relative to it.
+  const baseUrl =
+    (context && ((context.siteConfig && context.siteConfig.baseUrl) || context.baseUrl)) || '/';
+
   // Captured from contentLoaded for downstream postBuild use.
   // Map<pluginName, { plugin: { name, id }, content: any }>
   const loadedContentByPlugin = new Map();
@@ -229,6 +235,7 @@ module.exports = function pluginAeo(context, rawOptions) {
       if (options.aiRoutes.validate) {
         validateAiRoutes({
           loadedContentByPlugin,
+          baseUrl,
           verbose: options.verbose,
         });
       }
@@ -238,7 +245,7 @@ module.exports = function pluginAeo(context, rawOptions) {
       // category indexes, React pages). Same list postBuild emits from.
       if (actions && typeof actions.setGlobalData === 'function') {
         const companionRoutes = options.companions.enabled
-          ? collectCompanionItems(loadedContentByPlugin, options.companions).map(
+          ? collectCompanionItems(loadedContentByPlugin, options.companions, baseUrl).map(
               (item) => item.permalink,
             )
           : [];

@@ -116,7 +116,8 @@ export default function AskAiButton() {
           color: 'var(--ifm-color-primary)',
           '&:hover': {
             borderColor: 'var(--ifm-color-primary)',
-            backgroundColor: 'rgba(0, 65, 101, 0.04)',
+            // a 4% tint of the site's own primary colour
+            backgroundColor: 'color-mix(in srgb, var(--ifm-color-primary) 4%, transparent)',
           },
         }}
       >
