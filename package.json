@@ -80,5 +80,8 @@
   "homepage": "https://github.com/stackql-labs/docusaurus-plugin-aeo#readme",
   "engines": {
     "node": ">=18.0"
+  },
+  "allowScripts": {
+    "core-js": false
   }
 }

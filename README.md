@@ -87,7 +87,7 @@ inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaur
 | Option | Default | Description |
 | --- | --- | --- |
 | `companions.alternateLink` | `true` | Insert the `<link rel="alternate" type="text/markdown">` tag into each page that has a companion. |
-| `companions.linkHeader` | `false` | Also write the relation as an HTTP header for Netlify-style hosts: a `_headers` file in the build root with `Link: <url>; rel="alternate"; type="text/markdown"` per route (appended to a `_headers` your `static/` already ships). On a site with several locales the one file at the build root carries the rules of every locale. Requires `companions.alternateLink: true`. |
+| `companions.linkHeader` | `false` | Also send the relation as an HTTP response header, on hosts that read a `_headers` file (Netlify, Cloudflare Pages): one `Link: <url>; rel="alternate"; type="text/markdown"` rule per page, written to `_headers` in the build root (appended to a `_headers` your `static/` already ships). It has no effect on other hosts; see [Hosting notes](#hosting-notes). Requires `companions.alternateLink: true`. |
 
 Generated category indexes, custom React pages and blog listing pages do not get companions. `verbose: true` logs unreadable source files and missing HTML during alternate-link insertion.
 
@@ -431,6 +431,16 @@ const ignorePatterns = ['/', '/de/'].flatMap(aiRoutePatterns);
 
 The `sitemapExclude` helper, by contrast, does work with globs because `@docusaurus/plugin-sitemap` uses `ignorePatterns` (micromatch under the hood).
 
+## Hosting notes
+
+Everything the plugin produces is a static file or an edit to the built HTML, so companions, `llms.txt`, `llms-full.txt`, the alternate link tag and the Ask AI button work on any static host with no host configuration. A few things do depend on where the site is deployed:
+
+- **`Content-Type` of `.md` files.** Set by the host; see the MIME type note under Feature 1.
+- **GitHub Pages.** GitHub Pages runs published files through Jekyll by default. Jekyll builds sites from Markdown, so `.md` companions may be turned into pages instead of being published as they are. Add an empty `.nojekyll` file to `static/`, as the [Docusaurus deployment guide](https://docusaurus.io/docs/deployment) recommends. A project site is served under `/<repo>/`: set `baseUrl` as usual and the plugin follows it.
+- **`companions.linkHeader` is for hosts that read `_headers`.** That is Netlify and Cloudflare Pages. Vercel documents response headers through `vercel.json`, and GitHub Pages has no server-side configuration for them, so the option does nothing there. The alternate link tag, on by default, needs nothing from the host and is the portable way to advertise a companion. The file gets one rule per page that has a companion; Cloudflare Pages documents a limit of 100 header rules, so leave the option off there on a larger site.
+- **Where `_headers` is written.** At the root of the build directory, which is where both hosts document the file. A build of several locales (`docusaurus build`, one deployment serving `/` and `/de/`) puts every locale's rules in that one file. A locale built on its own (`docusaurus build --locale de`) or given its own `baseUrl` is a separate deployment and gets the file in its own output directory.
+- **Preview deployments.** Companion URLs, `Source:` lines, `llms.txt` links and the Ask AI prompt are absolute and come from `siteConfig.url`, so on a deploy preview they point at the production site.
+
 ## Full options reference
 
 ```js
@@ -441,7 +451,7 @@ The `sitemapExclude` helper, by contrast, does work with globs because `@docusau
     format: 'plain',          // 'plain' ('clean' is a synonym) | 'raw'
     exclude: [],              // route glob patterns to skip
     alternateLink: true,      // <link rel="alternate" type="text/markdown"> in each page
-    linkHeader: false,        // also a Link: header via a Netlify _headers file
+    linkHeader: false,        // also a Link: header via a _headers file (Netlify, Cloudflare Pages)
   },
 
   // Feature 2
@@ -503,6 +513,8 @@ npm test
 `npm test` runs every `test/*.test.js` file with Node's test runner: companion paths and files, route patterns, Ask AI prompts and the rendered button, plain Markdown, alternate links/headers, `llms.txt`, AI route classification and helpers, and the plugin run once per locale as Docusaurus runs it (`test/localizedBuild.test.js`). Shared fixtures and the loader that renders theme components in Node are in `test/helpers/`. There are no dev dependencies: the tests use the peer dependencies and the Babel setup that comes with `@docusaurus/core`.
 
 The [Tests workflow](.github/workflows/tests.yml) runs on every pull request targeting `main` and on pushes to `main`, using the committed lockfile and Node 24.x. To make it a merge gate, require the **Tests (Node 24)** status check in the branch protection rule or ruleset for `main`. Until that rule is enabled, a failed check does not block merging.
+
+When `npm audit` reports advisories, they are almost always in the Docusaurus toolchain, which is installed here only because it is a peer dependency. Do not run `npm audit fix`: it clears the report by downgrading the `@docusaurus/core` peer to an older release with a different set of advisories. Update the named packages instead (`npm update <package> ...`), which moves them within the ranges Docusaurus already allows, then re-run `npm audit` and `npm test`.
 
 The plain-markdown converter lives in `src/features/plainMarkdown.js` and is exercised by `test/plainMarkdown.test.js` with small MDX fixtures; add a fixture there when a new construct needs handling.
 

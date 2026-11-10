@@ -92,7 +92,8 @@ test('several locales: every locale\'s rules go in the one _headers at the build
   const res = await injectAlternateLinks({ props: localeProps(outDirs.de, 'de', '/de/'), emittedCompanions: pages('/de/'), linkHeader: true });
   assert.equal(res.headerRules, 2);
 
-  // A host reads _headers from the root of the deployed directory only.
+  // The hosts that read _headers document it at the root of the published
+  // directory, so one file there carries every locale.
   assert.deepEqual((await listFiles(build)).filter((f) => f.endsWith('_headers')), ['_headers']);
   assert.equal(
     await fs.readFile(path.join(build, '_headers'), 'utf8'),

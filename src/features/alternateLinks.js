@@ -6,10 +6,12 @@
 //
 // inserted into its built HTML before </head>, so an agent that lands on
 // the page can find the markdown without guessing the URL. Optionally the
-// same relation is written as an HTTP header for Netlify-style hosts via a
-// `_headers` file (`Link: <url>; rel="alternate"; type="text/markdown"`),
-// for agents that read headers before bodies. The file sits at the root of
-// the build directory, shared by every locale built into it.
+// same relation is written as an HTTP header via a `_headers` file
+// (`Link: <url>; rel="alternate"; type="text/markdown"`), for agents that
+// read headers before bodies. Only hosts that read `_headers` use it
+// (Netlify, Cloudflare Pages); elsewhere the file is inert and the <link>
+// tag is what advertises the companion. The file sits at the root of the
+// build directory, shared by every locale built into it.
 //
 // Same approach as @stackql/docusaurus-plugin-structured-data, which also
 // post-processes the built HTML in postBuild: the file is a string, the
@@ -29,14 +31,17 @@ function headerBlock(route, href) {
   return `${route}\n  Link: <${href}>; rel="alternate"; type="text/markdown"\n`;
 }
 
-// Where `_headers` goes. Hosts read it from the root of the deployed
-// directory only. A build of several locales puts every locale but the
-// default in a sub-directory of the build directory named after the locale
-// (baseUrl '/de/' or '/docs/de/' -> build/de), so that locale's rules belong
-// one level up, in the file the default locale's build wrote (Docusaurus
-// builds the default locale first). Every other build is its own root: one
-// locale, a locale built on its own (`--locale de`, baseUrl '/'), a locale
-// given its own baseUrl, or a core that passes no i18n.
+// Where `_headers` goes. The hosts that read the file (Netlify, Cloudflare
+// Pages) document it at the root of the published directory, so that is
+// the only place it can be relied on. A build of several locales puts
+// every locale but the default in a sub-directory of the build directory
+// named after the locale (baseUrl '/de/' or '/docs/de/' -> build/de), so
+// that locale's rules belong one level up, in the file the default
+// locale's build wrote (Docusaurus builds the default locale first). This
+// assumes the build directory is deployed as one site. Every other build
+// is its own root: one locale, a locale built on its own (`--locale de`,
+// baseUrl '/'), a locale given its own baseUrl, or a core that passes no
+// i18n.
 function headersDir({ outDir, siteConfig, i18n }) {
   const locale = i18n && i18n.currentLocale;
   if (!locale || locale === i18n.defaultLocale) return outDir;
@@ -97,8 +102,9 @@ module.exports = async function injectAlternateLinks({
       injected++;
     }
     if (linkHeader) {
-      // Netlify matches the route as requested; with trailingSlash false
-      // that is the bare route, otherwise the route with its slash.
+      // A `_headers` rule matches the path as requested; with
+      // trailingSlash false that is the bare route, otherwise the route
+      // with its slash.
       const route = htmlPath(item.permalink, trailingSlash, siteConfig.baseUrl).replace(/index\.html$/, '').replace(/\.html$/, '');
       headerBlocks.push(headerBlock(route === '' ? '/' : route, href));
     }
