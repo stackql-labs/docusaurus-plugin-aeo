@@ -1,7 +1,7 @@
 const path = require('path');
 const fs = require('fs').promises;
 const matter = require('gray-matter');
-const { companionPath, pageUrl } = require('../companionPath');
+const { companionPath, pageUrl, outputRoute } = require('../companionPath');
 const { toPlainMarkdown, resolveFormat } = require('./plainMarkdown');
 
 // Minimal glob matcher for route paths. Patterns like "/blog/tags/**",
@@ -211,11 +211,17 @@ module.exports = async function emitCompanions({
         result.markdown,
         item.title,
         item.description,
-        pageUrl(siteConfig.url, item.permalink),
+        pageUrl(siteConfig.url, item.permalink, siteConfig.baseUrl),
       );
     }
 
-    const target = path.join(outDir, companionPath(item.permalink, trailingSlash));
+    // The permalink carries siteConfig.baseUrl (localized to /<locale>/ in a
+    // localized build, whose outDir is build/<locale>); the file goes under
+    // outDir at the route without it.
+    const target = path.join(
+      outDir,
+      companionPath(outputRoute(item.permalink, siteConfig.baseUrl), trailingSlash),
+    );
     await ensureDir(target);
     await fs.writeFile(target, body, 'utf8');
 

@@ -19,37 +19,64 @@ function normalizeRoute(routePath) {
   return cleaned === '' ? '/' : cleaned;
 }
 
+// Every function below takes an optional `baseUrl` (siteConfig.baseUrl).
+// Docusaurus permalinks and location.pathname carry it, and the part of
+// the route that is the base is a root, not a page: on a site built at
+// '/docs/' or in a localized build (baseUrl '/de/') the route '/de/' is the
+// home page, whose companion is '/de/index.md', not '/de.md'. With the
+// default '/' nothing changes.
+function withBase(baseUrl, sitePath) {
+  return `${String(baseUrl || '/').replace(/\/+$/, '')}${sitePath}`;
+}
+
 // Site-relative companion path for a route, e.g. '/foo.md'. Always starts
 // with '/'.
-function companionPath(routePath, trailingSlash) {
-  const route = normalizeRoute(routePath);
-  if (route === '/') return '/index.md';
-  return trailingSlash === false ? `${route}.md` : `${route}/index.md`;
+function companionPath(routePath, trailingSlash, baseUrl) {
+  const route = outputRoute(routePath, baseUrl);
+  const rel = route === '/'
+    ? '/index.md'
+    : trailingSlash === false ? `${route}.md` : `${route}/index.md`;
+  return withBase(baseUrl, rel);
 }
 
 // Absolute companion URL for a route, e.g. 'https://example.com/foo.md'.
-// `siteUrl` is siteConfig.url; the route already carries siteConfig.baseUrl
-// (Docusaurus permalinks and location.pathname both include it).
-function companionUrl(siteUrl, routePath, trailingSlash) {
-  return `${String(siteUrl || '').replace(/\/+$/, '')}${companionPath(routePath, trailingSlash)}`;
+// `siteUrl` is siteConfig.url.
+function companionUrl(siteUrl, routePath, trailingSlash, baseUrl) {
+  return `${String(siteUrl || '').replace(/\/+$/, '')}${companionPath(routePath, trailingSlash, baseUrl)}`;
 }
 
 // Site-relative path of the HTML file Docusaurus writes for a route, the
 // same rule as @docusaurus/core's pathnameToFilename once the route has
 // been normalised: '/foo.html' when trailingSlash is false, '/foo/index.html'
 // otherwise, '/index.html' for the root.
-function htmlPath(routePath, trailingSlash) {
-  const route = normalizeRoute(routePath);
-  if (route === '/') return '/index.html';
-  return trailingSlash === false ? `${route}.html` : `${route}/index.html`;
+function htmlPath(routePath, trailingSlash, baseUrl) {
+  const route = outputRoute(routePath, baseUrl);
+  const rel = route === '/'
+    ? '/index.html'
+    : trailingSlash === false ? `${route}.html` : `${route}/index.html`;
+  return withBase(baseUrl, rel);
 }
 
 // Absolute URL of the page itself: canonical, no trailing slash except on
-// the root.
-function pageUrl(siteUrl, routePath) {
+// the root (the site root, or the localized root '/de/').
+function pageUrl(siteUrl, routePath, baseUrl) {
   const base = String(siteUrl || '').replace(/\/+$/, '');
-  const route = normalizeRoute(routePath);
-  return route === '/' ? `${base}/` : `${base}${route}`;
+  const route = outputRoute(routePath, baseUrl);
+  return `${base}${withBase(baseUrl, route)}`;
 }
 
-module.exports = { companionPath, companionUrl, htmlPath, pageUrl, normalizeRoute };
+// The route relative to the build output tree. Docusaurus permalinks carry
+// siteConfig.baseUrl, but the output tree is rooted at it: a site with
+// baseUrl '/docs/' writes /docs/intro to build/intro.html, and a localized
+// build (baseUrl '/de/', outDir build/de) writes /de/intro to
+// build/de/intro.html. URLs keep the full route (pass baseUrl to the
+// functions above); file paths under outDir use this route with no base.
+function outputRoute(routePath, baseUrl) {
+  const route = normalizeRoute(routePath);
+  const base = String(baseUrl || '/').replace(/\/+$/, '');
+  if (base === '') return route;
+  if (route === base) return '/';
+  return route.startsWith(`${base}/`) ? route.slice(base.length) : route;
+}
+
+module.exports = { companionPath, companionUrl, htmlPath, pageUrl, outputRoute, normalizeRoute };

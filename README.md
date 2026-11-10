@@ -91,6 +91,10 @@ inserted into the built HTML in `postBuild` (the same pattern `@stackql/docusaur
 
 Generated category indexes, custom React pages and blog listing pages do not get companions. `verbose: true` logs unreadable source files and missing HTML during alternate-link insertion.
 
+### Localized sites
+
+On a site with Docusaurus i18n the plugin runs once per locale, like every plugin, and needs no configuration: each locale gets its own companions (`/de/docs/intro.md` from the translated source, or from the default-locale source when a page has no translation), its own `/de/llms.txt` and `/de/llms-full.txt`, and alternate links and `Source:` lines that carry the locale prefix. The localized home page `/de/` is a root, so its companion is `/de/index.md`. The same logic covers a site built at a non-root `baseUrl`.
+
 ## Feature 2: `llms.txt` and `llms-full.txt`
 
 With the defaults enabled, the plugin writes two files to the build root after emitting companions. Both use the emitted companion list, filtered by `llmsTxt.include` and `llmsTxt.exclude`. If companions are disabled, `llms.txt` contains only the site title, tagline and optional header; no page entries or `llms-full.txt` are emitted.

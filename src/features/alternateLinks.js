@@ -16,7 +16,7 @@
 
 const path = require('path');
 const fs = require('fs').promises;
-const { htmlPath, companionUrl } = require('../companionPath');
+const { htmlPath, companionUrl, outputRoute } = require('../companionPath');
 
 const MARK = 'rel="alternate" type="text/markdown"';
 
@@ -52,8 +52,13 @@ module.exports = async function injectAlternateLinks({
   const headerBlocks = [];
 
   for (const item of emittedCompanions) {
-    const href = companionUrl(siteUrl, item.permalink, trailingSlash);
-    const file = path.join(outDir, htmlPath(item.permalink, trailingSlash));
+    const href = companionUrl(siteUrl, item.permalink, trailingSlash, siteConfig.baseUrl);
+    // The HTML lives under outDir at the route without siteConfig.baseUrl
+    // (see outputRoute); the URL and the _headers route keep the full one.
+    const file = path.join(
+      outDir,
+      htmlPath(outputRoute(item.permalink, siteConfig.baseUrl), trailingSlash),
+    );
     const html = await readIfExists(file);
     if (html === null) {
       skipped++;
@@ -77,7 +82,7 @@ module.exports = async function injectAlternateLinks({
     if (linkHeader) {
       // Netlify matches the route as requested; with trailingSlash false
       // that is the bare route, otherwise the route with its slash.
-      const route = htmlPath(item.permalink, trailingSlash).replace(/index\.html$/, '').replace(/\.html$/, '');
+      const route = htmlPath(item.permalink, trailingSlash, siteConfig.baseUrl).replace(/index\.html$/, '').replace(/\.html$/, '');
       headerBlocks.push(headerBlock(route === '' ? '/' : route, href));
     }
   }

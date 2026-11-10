@@ -41,6 +41,24 @@ test('trailingSlash true: /foo/index.html gets /foo/index.md', async () => {
   assert.match(html, /href="https:\/\/example\.com\/intro\/index\.md"/);
 });
 
+test('localized build: baseUrl /de/ and outDir build/de, URLs keep the prefix and files do not', async () => {
+  const outDir = await fs.mkdtemp(path.join(os.tmpdir(), 'aeo-de-'));
+  const page = '<!doctype html><html><head><title>x</title></head><body>hi</body></html>';
+  await fs.writeFile(path.join(outDir, 'index.html'), page);
+  await fs.writeFile(path.join(outDir, 'intro.html'), page);
+  const props = { outDir, siteConfig: { url: 'https://example.com', baseUrl: '/de/', trailingSlash: false } };
+  const emittedCompanions = [{ permalink: '/de/' }, { permalink: '/de/intro' }];
+  const res = await injectAlternateLinks({ props, emittedCompanions, linkHeader: true });
+  assert.deepEqual(res, { injected: 2, skipped: 0, headerRules: 2 });
+  const html = await fs.readFile(path.join(outDir, 'intro.html'), 'utf8');
+  assert.match(html, /href="https:\/\/example\.com\/de\/intro\.md"/);
+  const home = await fs.readFile(path.join(outDir, 'index.html'), 'utf8');
+  assert.match(home, /href="https:\/\/example\.com\/de\/index\.md"/);
+  const headers = await fs.readFile(path.join(outDir, '_headers'), 'utf8');
+  assert.match(headers, /^\/de\/intro\n  Link: <https:\/\/example\.com\/de\/intro\.md>/m);
+  assert.match(headers, /^\/de\/\n  Link: <https:\/\/example\.com\/de\/index\.md>/m);
+});
+
 test('linkHeader writes Netlify _headers rules, appending to an existing file', async () => {
   const { outDir, props, emittedCompanions } = await site(false);
   await fs.writeFile(path.join(outDir, '_headers'), '/*\n  X-Frame-Options: DENY\n');

@@ -8,6 +8,7 @@ import KeyboardArrowDownIcon from '@mui/icons-material/KeyboardArrowDown';
 import { useLocation } from '@docusaurus/router';
 import useDocusaurusContext from '@docusaurus/useDocusaurusContext';
 import { usePluginData } from '@docusaurus/useGlobalData';
+import { translate } from '@docusaurus/Translate';
 import icons from './icons.js';
 import styles from './styles.module.css';
 // CommonJS, shared with the Node-side features so the button and the
@@ -15,14 +16,31 @@ import styles from './styles.module.css';
 import companionPathModule from '../../companionPath.js';
 import askAiPromptModule from '../../askAiPrompt.js';
 
-const { companionUrl, normalizeRoute } = companionPathModule;
+const { companionUrl, pageUrl: pageUrlFor, normalizeRoute } = companionPathModule;
 const { fillPrompt } = askAiPromptModule;
 
-const PROVIDER_LABELS = {
-  claude: 'Ask Claude',
-  chatgpt: 'Ask ChatGPT',
-  perplexity: 'Ask Perplexity',
-};
+// Visible strings go through translate() so a localized site can override
+// them in i18n/<locale>/code.json (`docusaurus write-translations` extracts
+// them from this theme component).
+function providerLabels() {
+  return {
+    claude: translate({
+      id: 'aeo.askAi.provider.claude',
+      message: 'Ask Claude',
+      description: 'Ask AI menu entry',
+    }),
+    chatgpt: translate({
+      id: 'aeo.askAi.provider.chatgpt',
+      message: 'Ask ChatGPT',
+      description: 'Ask AI menu entry',
+    }),
+    perplexity: translate({
+      id: 'aeo.askAi.provider.perplexity',
+      message: 'Ask Perplexity',
+      description: 'Ask AI menu entry',
+    }),
+  };
+}
 
 const PROVIDER_URLS = {
   claude: 'https://claude.ai/new?q=',
@@ -47,7 +65,9 @@ export default function AskAiButton() {
 
   const siteUrl = (siteConfig.url || '').replace(/\/+$/, '');
   const route = normalizeRoute(location.pathname);
-  const pageUrl = route === '/' ? siteUrl : `${siteUrl}${route}`;
+  // siteConfig.baseUrl is the locale's base (/de/) in a localized build, so
+  // the localized home page resolves like the site root.
+  const pageUrl = pageUrlFor(siteUrl, route, siteConfig.baseUrl);
 
   // Only pages with a companion get the button: a generated category index
   // or a React page has no .md file, so a prompt pointing at one would
@@ -62,7 +82,7 @@ export default function AskAiButton() {
     if (!known) return null;
   }
   const mdUrl = companionsEnabled
-    ? companionUrl(siteUrl, route, siteConfig.trailingSlash)
+    ? companionUrl(siteUrl, route, siteConfig.trailingSlash, siteConfig.baseUrl)
     : pageUrl;
 
   const promptTemplate = cfg.promptTemplate || DEFAULT_PROMPT_TEMPLATE;
@@ -76,6 +96,7 @@ export default function AskAiButton() {
 
   const handleOpen = (e) => setAnchorEl(e.currentTarget);
   const handleClose = () => setAnchorEl(null);
+  const labels = providerLabels();
 
   return (
     <div className={styles.dropdownWrapper}>
@@ -99,7 +120,11 @@ export default function AskAiButton() {
           },
         }}
       >
-        Ask AI about this page
+        {translate({
+          id: 'aeo.askAi.button',
+          message: 'Ask AI about this page',
+          description: 'Label of the Ask AI dropdown button',
+        })}
       </Button>
       <Menu
         anchorEl={anchorEl}
@@ -116,7 +141,7 @@ export default function AskAiButton() {
       >
         {order.map((key) => {
           const Icon = icons[key];
-          const label = PROVIDER_LABELS[key];
+          const label = labels[key];
           const base = PROVIDER_URLS[key];
           if (!base || !Icon) return null;
           const href = `${base}${encoded}`;

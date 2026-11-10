@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.1
+
+Localized sites (Docusaurus i18n) and sites with a non-root `baseUrl`. Raised against stackql.io when it gained a `de` locale.
+
+### Fixed
+
+- **Companions and alternate links on a site whose `baseUrl` is not `/`.** Docusaurus permalinks carry `siteConfig.baseUrl` but the build output tree is rooted at it, and in a localized build the plugin runs once per locale with `baseUrl: '/<locale>/'` and `outDir: build/<locale>`. Feature 1 joined `outDir` with the full permalink, so a `de` site wrote its companions to `build/de/de/foo.md`, and feature 1b looked for the page's HTML at the same wrong path and injected nothing. Both now strip the base URL from the route before touching the file system (`outputRoute` in `src/companionPath.js`); the companion URLs, the `Source:` lines, `llms.txt` and the `_headers` routes keep the full route as before. A localized build therefore emits `/<locale>/foo.md`, `/<locale>/llms.txt` and `/<locale>/llms-full.txt` from the translated sources with no configuration.
+
+### Changed
+
+- The Ask AI button's visible strings ("Ask AI about this page", "Ask Claude", "Ask ChatGPT", "Ask Perplexity") go through `translate()` with the ids `aeo.askAi.button` and `aeo.askAi.provider.<key>`, so `docusaurus write-translations` extracts them into `i18n/<locale>/code.json` and a localized site can translate them.
+
 ## 0.5.0
 
 Plain-markdown companions, one rule for where a companion lives, and the companion advertised from its page. Raised against stackql.io, where the Ask AI prompt on the homepage read `https://stackql.io.md` and every `.md` URL returned raw MDX (imports, MUI components, tab definitions and inline SVG path data before the first sentence), and from an independent agent-readiness audit of the built site (alternate link, `llms-full.txt` reference and size, `Source:` URLs, the `how-tos` alias).

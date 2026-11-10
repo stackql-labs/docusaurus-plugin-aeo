@@ -172,8 +172,8 @@ function renderLlmsTxt({ siteConfig, siteUrl, trailingSlash, sections, options, 
       // Absolute, as the llms.txt spec's examples are: the file is read
       // away from the site, where a relative link has no base.
       const url = companionsEnabled
-        ? companionUrl(siteUrl, item.permalink, trailingSlash)
-        : pageUrl(siteUrl, item.permalink);
+        ? companionUrl(siteUrl, item.permalink, trailingSlash, siteConfig.baseUrl)
+        : pageUrl(siteUrl, item.permalink, siteConfig.baseUrl);
       const desc = item.description || siteConfig.tagline || '';
       const titleText = item.title || item.permalink;
       if (desc) {
@@ -191,8 +191,10 @@ function renderLlmsTxt({ siteConfig, siteUrl, trailingSlash, sections, options, 
   if (options.fullTxt && options.linkFullTxt !== false && companionsEnabled) {
     lines.push('## Optional');
     lines.push('');
+    // Next to this file: under the locale's base in a localized build.
+    const base = String(siteConfig.baseUrl || '/').replace(/\/+$/, '');
     lines.push(
-      `- [Full text of every page](${siteUrl}/llms-full.txt): one file with the content of every page listed above`,
+      `- [Full text of every page](${siteUrl}${base}/llms-full.txt): one file with the content of every page listed above`,
     );
     lines.push('');
   }
@@ -204,8 +206,8 @@ function renderLlmsTxt({ siteConfig, siteUrl, trailingSlash, sections, options, 
 // the title, when the body does not already open with it). A plain
 // companion already carries both, so the header is skipped and the body
 // is emitted as is.
-function fullTxtBlock({ body, item, siteUrl }) {
-  const url = pageUrl(siteUrl, item.permalink);
+function fullTxtBlock({ body, item, siteUrl, baseUrl }) {
+  const url = pageUrl(siteUrl, item.permalink, baseUrl);
   const head = body.trimStart().split('\n', 8);
   const hasH1 = /^#\s+\S/.test(head[0] || '');
   const hasSource = head.some((l) => /^Source: \S/.test(l));
@@ -297,7 +299,7 @@ module.exports = async function emitLlmsTxt({
           }
           continue;
         }
-        const block = fullTxtBlock({ body, item, siteUrl });
+        const block = fullTxtBlock({ body, item, siteUrl, baseUrl: siteConfig.baseUrl });
         const chunk = `${sectionOpen ? SEP : `${out ? SEP : ''}## ${section.title}\n\n`}${block}`;
         const bytes = Buffer.byteLength(chunk, 'utf8');
         if (full.maxBytes && size + bytes > full.maxBytes) {

@@ -1,6 +1,6 @@
 {
   "name": "@stackql/docusaurus-plugin-aeo",
-  "version": "0.5.0",
+  "version": "0.5.1",
   "description": "AEO (Answer Engine Optimization) helpers for Docusaurus: .md companion files, llms.txt / llms-full.txt, an Ask AI dropdown, and /ai/* route conventions.",
   "main": "src/index.js",
   "exports": {
